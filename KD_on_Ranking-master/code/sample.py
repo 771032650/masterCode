@@ -13,17 +13,17 @@ import torch.nn.functional as F
 import utils
 
 
-try:
-    from cppimport import imp_from_filepath
-    from os.path import join, dirname
-    path = join(dirname(__file__), "sources/sampling.cpp")
-    sampling = imp_from_filepath(path)
-    sampling.seed(world.SEED)
-    sample_ext = True
-except:
-    world.cprint("Cpp ext not loaded")
-    sample_ext = False
-
+# try:
+#     from cppimport import imp_from_filepath
+#     from os.path import join, dirname
+#     path = join(dirname(__file__), "sources/sampling.cpp")
+#     sampling = imp_from_filepath(path)
+#     sampling.seed(world.SEED)
+#     sample_ext = True
+# except:
+#     world.cprint("Cpp ext not loaded")
+#     sample_ext = False
+sample_ext = False
 ALLPOS = None
 # ----------------------------------------------------------------------------
 # distill
@@ -129,6 +129,49 @@ class DistillSample:
         student_neg = batch_neg[batch_list, student_max]
         return student_neg
 
+class SimpleSample:
+    def __init__(self,
+                 dataset: BasicDataset,
+                 student: PairWiseModel,
+                 teacher: PairWiseModel,
+                 dns_k: int,
+                 method: int = 3,
+                 beta=world.beta):
+
+        self.beta = beta
+
+        self.dataset = dataset
+        self.student = student
+        self.teacher = teacher
+
+        self.dns_k=dns_k
+
+    def PerSample(self, batch=None):
+        if batch is not None:
+            return UniformSample_DNS_yield(self.dataset,
+                                           self.dns_k,
+                                           batch_size=batch)
+        else:
+            return UniformSample_DNS(self.dataset, self.dns_k)
+
+    def Sample(self,
+               batch_users,
+               batch_pos,
+               batch_neg,
+               epoch,
+               dynamic_samples=None):
+        STUDENT = self.student
+        TEACHER = self.teacher
+        # ----
+        student_scores = userAndMatrix(batch_users, batch_neg, STUDENT)
+        _, top1 = student_scores.max(dim=1)
+        idx = torch.arange(len(batch_users))
+        negitems = batch_neg[idx, top1]
+        # ----
+
+        return negitems, None, None
+
+
 
 class RD:
     def __init__(
@@ -142,7 +185,7 @@ class RD:
         lamda=1,
         teach_alpha=1.0,
         dynamic_sample=100,
-        dynamic_start_epoch=0,
+        dynamic_start_epoch=50,
     ):
         self.rank_aware = False
         self.dataset = dataset
@@ -151,7 +194,7 @@ class RD:
         self.RANK = None
         self.epoch = 0
 
-        self._weight_renormalize = False
+        self._weight_renormalize = True
         self.mu, self.topk, self.lamda = mu, topK, lamda
         self.dynamic_sample_num = dynamic_sample
         self.dns_k = dns
@@ -175,7 +218,7 @@ class RD:
         w = torch.exp(-w / self.lamda)
         return (w / w.sum()).unsqueeze(0)
 
-    def _generateTopK(self, batch_size=256):
+    def _generateTopK(self, batch_size=1024):
         if self.RANK is None:
             with torch.no_grad():
                 self.RANK = torch.zeros(
@@ -203,7 +246,7 @@ class RD:
     def _weights(self, S_score_in_T, epoch, dynamic_scores):
         batch = S_score_in_T.shape[0]
         if epoch < self.start_epoch:
-            return self._static_weights.repeat((batch, 1))
+            return self._static_weights.repeat((batch, 1)).to(world.DEVICE)
         with torch.no_grad():
             static_weights = self._static_weights.repeat((batch, 1))
             # ---
@@ -213,11 +256,10 @@ class RD:
             dynamic_weights = torch.zeros(batch, topk)
             for col in range(topk):
                 col_prediction = S_score_in_T[:, col].unsqueeze(1)
-                num_smaller = torch.sum(col_prediction < dynamic_scores,
-                                        dim=1).float()
+                num_smaller = torch.sum(col_prediction < dynamic_scores,dim=1).float()
                 # print(num_smaller.shape)
                 relative_rank = num_smaller / num_dynamic
-                appro_rank = torch.floor((m_items - 1) * relative_rank)
+                appro_rank = torch.floor((m_items - 1) * relative_rank)+1
 
                 dynamic = torch.tanh(self.mu * (appro_rank - col))
                 dynamic = torch.clamp(dynamic, min=0.)
@@ -244,7 +286,7 @@ class RD:
         # ----
         student_scores = userAndMatrix(batch_users, batch_neg, STUDENT)
         dynamic_scores = userAndMatrix(batch_users, dynamic_samples,
-                                       STUDENT).detach()
+                                        STUDENT).detach()
 
         _, top1 = student_scores.max(dim=1)
         idx = torch.arange(len(batch_users))
@@ -261,7 +303,7 @@ class RD:
         RD_loss = -(weights * torch.log(torch.sigmoid(S_score_in_T)))
         # print("RD shape", RD_loss.shape)
         RD_loss = RD_loss.sum(1)
-        RD_loss = self.teach_alpha * RD_loss.mean()
+        RD_loss = RD_loss.mean()
 
         return negitems, None, RD_loss
 
@@ -275,7 +317,7 @@ class CD:
                  lamda=0.5,
                  n_distill=10,
                  t1=1,
-                 t2=0):
+                 t2=2):
         self.student = student
         self.teacher = teacher.eval()
         self.dataset = dataset
@@ -285,8 +327,27 @@ class CD:
         self.lamda = lamda
         self.n_distill = n_distill
         self.t1, self.t2 = t1, t2
-
+        ranking_list = np.asarray([1-(i/5000) for i in range(5000)])
+        ranking_list = torch.FloatTensor(ranking_list)
+        self.ranking_mat = torch.stack([ranking_list] * self.dataset.n_users, 0)
+        self.ranking_mat.requires_grad = False
+        # self.crsNeg = self.dataset.getUserPosItems(range(self.dataset.n_users))
+        # neglist = np.arange(self.dataset.m_items)
+        # self.userneglist=[]
+        # for user in range(self.dataset.n_users):
+        #     self.userneglist.append(np.delete(neglist, self.crsNeg[user], -1))
     def PerSample(self, batch=None):
+        if self.strategy == "random":
+            MODEL = None
+        elif self.strategy == "student guide":
+            MODEL = self.student
+        elif self.strategy == "teacher guide":
+            MODEL = self.teacher
+        else:
+            raise TypeError("CD support [random, student guide, teacher guide], " \
+                            f"But got {self.strategy}")
+        with timer(name="CD sample"):
+            self.get_rank_sample(MODEL=MODEL)
         if batch is not None:
             return UniformSample_DNS_yield(self.dataset,
                                            self.dns_k,
@@ -303,48 +364,82 @@ class CD:
                                    (batch_size, self.n_distill))
         return torch.from_numpy(samples).long().to(world.DEVICE)
 
-    def rank_sample(self, batch_users, MODEL):
+    def get_rank_sample(self,MODEL):
         if MODEL is None:
-            return self.random_sample(len(batch_users))
+            return self.random_sample(self.dataset.n_users)
         MODEL: LightGCN
         all_items = self.dataset.m_items
-        batch_size = len(batch_users)
-        rank_samples = torch.zeros(batch_size, self.n_distill)
+        self.rank_samples = torch.zeros(self.dataset.n_users, self.n_distill)
         with torch.no_grad():
-            items_score = MODEL.getUsersRating(batch_users)
-            index = torch.arange(all_items).long()
-            for i in range(batch_size):
-                rating = items_score[i]
+            #items_score = MODEL.getUsersRating(batch_users)
+            batch_size=1024
+            rank_scores = torch.zeros(self.dataset.n_users, 5000)
+            rank_items = torch.zeros(self.dataset.n_users, 5000)
+            for user in range(0, self.dataset.n_users, batch_size):
+                end = min(user + batch_size, self.dataset.n_users)
+                scores = torch.clamp(MODEL.getUsersRating(
+                    torch.arange(user, end)),min=0)
+                pos_item = self.dataset.getUserPosItems(
+                    np.arange(user, end))
+                exclude_user, exclude_item = [], []
+                for i, items in enumerate(pos_item):
+                    exclude_user.extend([i] * len(items))
+                    exclude_item.extend(items)
+                scores[exclude_user, exclude_item] = -1e10
+                rank_scores[user:end],  rank_items[user:end] = torch.topk(scores, 5000)
+                del scores
+
+            for user in range(self.dataset.n_users):
+                ranking_list = self.ranking_mat[user]
+                rating=rank_scores[user]
+                negitems=rank_items[user]
+                sampled_items = set()
                 while True:
                     with timer(name="compare"):
-                        random_index = torch.from_numpy(
-                            np.random.randint(all_items,
-                                              size=(all_items, ))).long()
-                        compared = (rating[index] > rating[random_index])
-                    with timer(name="index"):
-                        sampled_items = index[compared]
-                        if len(sampled_items) < self.n_distill:
-                            continue
+                        samples = torch.multinomial(ranking_list, 2, replacement=True)
+                        if rating[samples[0]] > rating[samples[1]]:
+                            sampled_items.add(negitems[samples[0]])
                         else:
-                            with timer(name="topk"):
-                                sampled_items = torch.topk(sampled_items,
-                                                           k=self.n_distill)[1]
+                            sampled_items.add(negitems[samples[1]])
+                        if len(sampled_items)>=self.n_distill:
                             break
-                rank_samples[i] = sampled_items
-        return rank_samples.to(world.DEVICE).long()
+                self.rank_samples[user] = torch.Tensor(list(sampled_items))
+        self.rank_samples.to(world.DEVICE).long()
+        # with torch.no_grad():
+        #     # interesting items
+        #     self.rank_samples = torch.zeros(self.dataset.n_users, self.n_distill)
+        #     for user in range(self.dataset.n_users):
+        #         crsNeg = self.dataset.getOneUserPosItems(user)
+        #         neglist = np.arange(self.dataset.m_items)
+        #         neglist = np.delete(neglist, crsNeg, -1)
+        #         negItems = torch.LongTensor(neglist).to(world.DEVICE)
+        #         negNum=len(negItems)
+        #         rating = torch.relu(userAndMatrix(torch.tensor(user), negItems, MODEL)).reshape(-1)
+        #         score,order = rating.sort(dim=-1,descending=True)
+        #         negItems=negItems[order]
+        #         ranking_list = np.asarray([1 - ((i+1 )/ negNum) for i in range(negNum)])
+        #         ranking_list = torch.FloatTensor(ranking_list)
+        #         sampled_items=[]
+        #         while True:
+        #             with timer(name="compare"):
+        #                     samples = torch.multinomial(ranking_list, 2, replacement=True)
+        #                     if score[samples[0]] > score[samples[1]]:
+        #                         sampled_items.append(negItems[samples[0]])
+        #                     else:
+        #                         sampled_items.append(negItems[samples[1]])
+        #                     if len(sampled_items)>=self.n_distill:
+        #                         break
+        #         self.rank_samples[user] = torch.Tensor(list(sampled_items))
+        #         del samples
+        #         del negItems
+        #         del rating
+        #         del ranking_list
+
 
     def sample_diff(self, batch_users, batch_pos, batch_neg, strategy):
         STUDENT = self.student
         TEACHER = self.teacher
-        if strategy == "random":
-            MODEL = None
-        elif strategy == "student guide":
-            MODEL = STUDENT
-        elif strategy == "teacher guide":
-            MODEL = TEACHER
-        else:
-            raise TypeError("CD support [random, student guide, teacher guide], " \
-                            f"But got {strategy}")
+
         dns_k = self.dns_k
         # ----
         student_scores = userAndMatrix(batch_users, batch_neg, STUDENT)
@@ -352,8 +447,7 @@ class CD:
         idx = torch.arange(len(batch_users))
         negitems = batch_neg[idx, top1]
         # ----
-        with timer(name="CD sample"):
-            random_samples = self.rank_sample(batch_users, MODEL=MODEL)
+        random_samples=self.rank_samples[batch_users,:]
         # samples_vector = random_samples.reshape((-1, ))
         samples_scores_T = userAndMatrix(batch_users, random_samples, TEACHER)
         samples_scores_S = userAndMatrix(batch_users, random_samples, STUDENT)
@@ -373,7 +467,7 @@ class RRD:
     def __init__(self,dataset: BasicDataset,
                 student: PairWiseModel,
                 teacher: PairWiseModel,
-                 dns,T=10, K=5, L=5):
+                 dns,T=100, K=10, L=10):
         self.student = student
         self.teacher = teacher.eval()
 
@@ -383,7 +477,20 @@ class RRD:
         self.T = T
         self.K = K
         self.L = L
-        self.RRD_sampling()
+        # For interesting item
+        ranking_list = np.asarray([np.exp(-(i + 1)) for i in range(self.T)])
+        ranking_list = torch.FloatTensor(ranking_list)
+        self.ranking_mat = torch.stack([ranking_list] * self.dataset.n_users, 0)
+        self.ranking_mat.requires_grad = False
+        # For uninteresting item
+        self.mask = torch.ones((self.dataset.n_users,self.dataset.m_items))
+        for user in range(self.dataset.n_users):
+            user_pos = self.dataset.getOneUserPosItems(user)
+            for item in user_pos:
+                self.mask[user][item] = 0
+        self.mask.requires_grad = False
+        with timer(name="RRD sample"):
+            self.RRD_sampling()
 
     def PerSample(self, batch=None):
         if batch is not None:
@@ -402,38 +509,34 @@ class RRD:
 
     # epoch 마다
     def RRD_sampling(self):
-
-            # For interesting item
-            ranking_list = np.asarray([np.exp(-(i + 1) / self.T) for i in range(100)])
-            ranking_list = torch.FloatTensor(ranking_list)
-            self.ranking_mat = torch.stack([ranking_list] * self.dataset.n_users, 0)
-            self.ranking_mat.requires_grad = False
-
-            # For uninteresting item
-            self.mask = torch.ones((self.dataset.n_users, self.L))
-            # for user in range(len(batch_users)):
-            #     for item in range(len(batch_neg)):
-            #         self.mask[user][item] = 0
-
-
-            self.mask.requires_grad = False
-            gpu = torch.device('cuda:0' )
             with torch.no_grad():
                 # interesting items
                 self.interesting_items = torch.zeros((self.dataset.n_users, self.K))
                 for user in range(self.dataset.n_users):
-                    samples = torch.multinomial(self.ranking_mat[user,:len(self.dataset.getOneUserPosItems(user))], self.K, replacement=False)
-                    samples = samples.sort(dim=0)[0]
-                    self.interesting_items[user] = torch.LongTensor(self.dataset.getOneUserPosItems(user))[samples]
+                    crsNeg = self.dataset.getOneUserPosItems(user)
+                    neglist=np.arange(self.dataset.m_items)
+                    neglist= np.delete(neglist,crsNeg,-1)
+                    negItems = torch.LongTensor(neglist).to(world.DEVICE)
+                    n_pos=500
+                    samples = torch.multinomial(self.ranking_mat[user,: self.T], self.K, replacement=False)
+                    samples = samples.sort(dim=0)[0].to(world.DEVICE)
+                    rating=userAndMatrix(torch.tensor(user), negItems, self.teacher).reshape((-1))
+                    n_rat=rating.sort(dim=0,descending=True)[1]
+                    negItems=negItems[n_rat]
+                    self.interesting_items[torch.tensor(user)] = negItems[samples]
+                    self.mask[user][negItems[: self.T]]=0
+                    del samples
+                    del negItems
+                    del rating
                 self.interesting_items = self.interesting_items.to(world.DEVICE)
                 # uninteresting items
-                m1 = self.mask[: self.dataset.n_users // 2, :].to(world.DEVICE)
+                m1 = self.mask[:self.dataset.n_users//2,:]
                 tmp1 = torch.multinomial(m1, self.L, replacement=False)
                 del m1
-                m2 = self.mask[self.dataset.n_users // 2:, :].to(world.DEVICE)
+                m2 = self.mask[self.dataset.n_users//2:,:]
                 tmp2 = torch.multinomial(m2, self.L, replacement=False)
                 del m2
-                self.uninteresting_items = torch.cat([tmp1, tmp2], 0)
+                self.uninteresting_items =torch.cat((tmp1,tmp2),dim=0).to(world.DEVICE)
 
 
 
@@ -445,7 +548,7 @@ class RRD:
 
         below = (below1 + below2).log().sum(1, keepdims=True)
 
-        return -torch.mean(above - below)
+        return above - below
 
     def Sample(self,
                batch_users,
@@ -460,17 +563,142 @@ class RRD:
         negitems = batch_neg[idx, top1]
         # ----
         interesting_users, uninteresting_users = self.get_samples(batch_users)
+
         interesting_users = interesting_users.reshape((-1,)).long()
         uninteresting_users = uninteresting_users.reshape((-1,)).long()
         vector_users = batch_users.repeat((self.K, 1)).t().reshape((-1,))
-        interesting_user_prediction =STUDENT(vector_users,interesting_users).reshape(
-            (-1, self.K))
+        interesting_user_prediction =torch.sigmoid(STUDENT(vector_users,interesting_users).reshape(
+            (-1, self.K)))
         vector_users = batch_users.repeat((self.L, 1)).t().reshape((-1,))
-        uninteresting_user_prediction = STUDENT(vector_users,uninteresting_users).reshape(
-            (-1, self.L))
+        uninteresting_user_prediction = torch.sigmoid(STUDENT(vector_users,uninteresting_users).reshape(
+            (-1, self.L)))
         RRD_loss = self.relaxed_ranking_loss(interesting_user_prediction,uninteresting_user_prediction)
+        RRD_loss=-torch.mean(RRD_loss)
+        user_de = STUDENT.get_DE_loss(batch_users.long(), is_user=True)
+        interesting_de = STUDENT.get_DE_loss(interesting_users.long(), is_user=False)
+        uninteresting_de = STUDENT.get_DE_loss(uninteresting_users.long(), is_user=False)
+        DE_loss=user_de+interesting_de+uninteresting_de
+        return negitems,None,RRD_loss*world.kd_weight+DE_loss*world.de_weight
 
-        return negitems,None,RRD_loss
+
+
+class PopularitySample:
+    def __init__(self,dataset: BasicDataset,
+                student: PairWiseModel,
+                teacher: PairWiseModel,
+                 dns,K=10
+
+    ):
+        self.student = student
+        self.teacher = teacher.eval()
+        self.K=K
+        self.dataset = dataset
+        self.dns_k = 1
+        self.popularity=self.dataset.popularity()+1
+        max_popularit=np.sum(self.popularity)
+        self.popularity=self.popularity/max_popularit
+        self.popularity=torch.tensor(np.power(self.popularity,world.lambda_pop)).to(world.DEVICE)
+        #self.popularity=1/self.popularity
+        self.generate_negative_samples()
+        #self.popularity_score_sample()
+    def PerSample(self, batch=None):
+        self.popularity_score_sample()
+        if batch is not None:
+            return UniformSample_DNS_yield(self.dataset,
+                                           self.dns_k,
+                                           batch_size=batch)
+        else:
+            return UniformSample_DNS(self.dataset, self.dns_k)
+
+
+    def generate_negative_samples(self):
+        with torch.no_grad():
+            batch_size=1024
+            z=1000
+            self.sameple_ratio = torch.zeros(self.dataset.n_users, z)
+            self.sameple_item = torch.zeros(self.dataset.n_users, z).long()
+            for user in range(0, self.dataset.n_users, batch_size):
+                end = min(user + batch_size, self.dataset.n_users)
+                scores = self.teacher.getUsersRating(
+                    torch.arange(user, end))
+                pos_item = self.dataset.getUserPosItems(
+                    np.arange(user, end))
+
+                # -----
+                exclude_user, exclude_item = [], []
+                for i, items in enumerate(pos_item):
+                    exclude_user.extend([i] * len(items))
+                    exclude_item.extend(items)
+                scores[exclude_user, exclude_item] = -1e5
+                # -----
+                rank_scores, neg_item = torch.topk(scores, z)
+                neg_popularity=self.popularity[neg_item]
+                # n_min=torch.min(torch.mul(rank_scores.double(),neg_popularity),dim=-1)[0].reshape((-1,1))
+                # n_min=n_min.repeat(1,z)
+                self.sameple_ratio[user:end,:]=torch.mul(rank_scores.double(),neg_popularity)
+                #self.sameple_ratio[user:end, :]=neg_popularity
+                self.sameple_item[user:end,:]=neg_item.long()
+                del neg_popularity
+                del rank_scores, neg_item
+
+    def popularity_score_sample(self):
+
+        self.interesting_items = torch.zeros((self.dataset.n_users, self.K))
+        for user in range(self.dataset.n_users):
+            sameple_ratio=self.sameple_ratio[user]
+            samples = torch.multinomial(sameple_ratio, self.K, replacement=False)
+            negItems = self.sameple_item[user].long()
+            #scores,samples = torch.topk(sameple_ratio, self.K)
+            self.interesting_items[user]=negItems[samples]
+        return self.interesting_items.to(world.DEVICE)
+
+    def _generateStaticWeights(self):
+        w = torch.arange(1, self.K + 1).float()
+        w = torch.exp(-w/1)
+        return (w / w.sum()).unsqueeze(0).to(world.DEVICE)
+
+
+    def Sample(self,
+               batch_users,
+               batch_pos,
+               batch_neg, epoch):
+        STUDENT = self.student
+        TEACHER = self.teacher
+
+        dns_k = self.dns_k
+        # ----
+        student_scores = userAndMatrix(batch_users, batch_neg, STUDENT)
+        _, top1 = student_scores.max(dim=1)
+        idx = torch.arange(len(batch_users))
+        negitems = batch_neg[idx, top1]
+        # ----
+
+        random_samples = self.interesting_items[batch_users]
+        # samples_vector = random_samples.reshape((-1, ))
+        samples_scores_T = userAndMatrix(batch_users, random_samples, TEACHER)
+        samples_scores_S = userAndMatrix(batch_users, random_samples, STUDENT)
+        m = self.popularity[random_samples.long()].float()
+        # neg_popularity = self.popularity[random_samples.long()]
+        # n_max = torch.max(torch.mul(samples_scores_T, neg_popularity), dim=-1)[0].reshape((-1, 1))
+        # n_max = n_max.repeat(1, self.K)
+        # weights = (torch.mul(samples_scores_T, neg_popularity))/n_max
+        # weights = torch.sigmoid(samples_scores_T)
+        # inner = torch.sigmoid(samples_scores_S)
+        #weights = self._generateStaticWeights()
+        # RD_loss
+        # PD_loss = -(weights * torch.log(inner + 1e-10) +
+        #             (1 - weights) * torch.log(1 - inner + 1e-10))
+        # PD_loss = PD_loss.sum(1).mean()
+        x = ((samples_scores_S - torch.mul(samples_scores_T, m)) ** 2).sum(-1)
+        PD_loss_1 = torch.mean(x)
+        samples_scores_T = TEACHER(batch_users,batch_pos)
+        samples_scores_S =STUDENT(batch_users,batch_pos)
+        m = self.popularity[batch_pos.long()].float()
+        x = ((samples_scores_S - torch.mul(samples_scores_T, m)) ** 2)
+        PD_loss_2 = torch.mean(x)
+
+        return negitems, None, PD_loss_1+PD_loss_2
+
 
 # ==============================================================
 # NON-EXPERIMENTAL PART

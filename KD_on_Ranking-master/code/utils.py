@@ -36,17 +36,13 @@ class BPRLoss:
         loss, reg_loss = self.model.bpr_loss(users, pos, neg, weights=weights)
         reg_loss = reg_loss * self.weight_decay
         loss = loss + reg_loss
-        if world.config['de_loss']:
-            de_loss_user = self.model.get_DE_loss(users, is_user=True)
-            de_loss_pos = self.model.get_DE_loss(pos, is_user=False)
-            de_loss_neg = self.model.get_DE_loss(neg, is_user=False)
-            de_loss = de_loss_user + de_loss_pos + de_loss_neg
-            assert de_loss.requires_grad == True
-            loss = loss + de_loss * world.config['de_weight']
         if add_loss is not None:
             assert add_loss.requires_grad == True
             # print(loss.item(), add_loss.item())
-            loss = loss + add_loss
+            if world.SAMPLE_METHOD!='DE_RRD':
+                loss = loss*world.loss_weight + add_loss*world.kd_weight
+            else:
+                loss=loss+add_loss
         self.opt.zero_grad()
         loss.backward()
         self.opt.step()
@@ -366,8 +362,8 @@ def map_item_N(pop_item, spilt):
     mapping = []
 
     for i in range(len(spilt)):
-        left = ceil(sum(spilt[:i]) * num_item)
-        right = floor((left + spilt[i]) * num_item)
+        left = floor(sum(spilt[:i]) * num_item)
+        right = floor(left + spilt[i] * num_item)
         mapping.append(set(index[left:right]))
     return mapping
 
@@ -408,7 +404,7 @@ def popularity_ratio(pop_model: np.ndarray, pop_model_user: np.ndarray,
         dict: {"I_ratio""float, "I_KL":float, "I_gini":float, "APT":[], "I_bin": float}
     """
 
-    pop_dataset, _ = dataset.popularity()
+    pop_dataset= dataset.popularity()
     assert len(pop_model) == len(pop_dataset)
     num_item = len(pop_dataset)
     num_interaction = pop_model.sum()
@@ -423,8 +419,8 @@ def popularity_ratio(pop_model: np.ndarray, pop_model_user: np.ndarray,
     metrics['I_KL'] = np.sum(prop_model *
                              np.log(prop_model / prop_uniform + 1e-7))
 
-    mapping = map_item_three(dataset.popularity()[0])
-    mapping_N = map_item_N((dataset.popularity()[0]),
+    mapping = map_item_three(dataset.popularity())
+    mapping_N = map_item_N((dataset.popularity()),
                            [0.1, 0.1, 0.3, 0.3, 0.2])
 
     metrics['APT'] = APT(pop_model_user, mapping)
@@ -730,5 +726,57 @@ def getLabel(test_data, pred_data):
     return np.array(r).astype('float')
 
 
+def split_item_popularity(pop_item,n):
+    """mapping item into
+
+    Args:
+        pop_item ([type]): [description]
+
+    Return:
+        list[ndarray...]: short-head, long-tail, distant-tail
+    """
+    from math import floor, ceil
+    index =np.argsort(pop_item)[::-1]
+    sum_pop=np.sum(pop_item)
+    ave_pop=sum_pop/n
+    mapping = []
+    k=0
+    left=0
+    i=0
+    for i in range(len(index)):
+        k=k+pop_item[index[i]]
+        if k>ave_pop:
+            mapping.append(set(index[left:i-1]))
+            left=i
+            k=pop_item[index[i]]
+    mapping.append(set(index[left:]))
+    return mapping
+
+def PrecisionByGrpup(test_data,pre_data,dataset: Loader,r):
+    popularity = dataset.popularity() + 1
+    sum_popularit = np.sum(popularity)
+    popularity = popularity / sum_popularit
+    #popularity = np.power(popularity, 0.4)
+    mappings=split_item_popularity(popularity,5)
+    total_user=len(test_data)
+    metrics = {}
+    apts=[]
+    for mapping in mappings:
+        apt = 0.
+        for i in range(len(test_data)):
+            #groundnum =  np.nonzero(r[i])[0]
+            groundnum = range(0,10)
+            if len(groundnum)>0:
+                groundTrue=pre_data[i][groundnum].astype(np.int64)
+                count = list(map(lambda x: x in mapping, groundTrue))
+                apt += np.sum(count)/10
+        apt = apt / total_user
+        apts.append(apt)
+    #metrics['precisionbygroup']=APT(groundTrue,mappings=mapping)
+    return apts
 # ====================end Metrics=============================
+
+
+
+
 # =========================================================

@@ -58,6 +58,7 @@ class DistillEmbedding(BasicModel):
         raise NotImplementedError
 
 
+
 class LightGCN(BasicModel):
     def __init__(self,
                  config:dict,
@@ -73,8 +74,12 @@ class LightGCN(BasicModel):
     def init_weight(self, init):
         self.num_users  = self.dataset.n_users
         self.num_items  = self.dataset.m_items
-        self.latent_dim = self.config['latent_dim_rec']
-        self.n_layers = self.config['lightGCN_n_layers']
+        if self.fix==True:
+            self.latent_dim = self.config['teacher_dim']
+            self.n_layers = self.config['teacher_layer']
+        else:
+            self.latent_dim = self.config['latent_dim_rec']
+            self.n_layers = self.config['lightGCN_n_layers']
         self.keep_prob = self.config['keep_prob']
         self.A_split = self.config['A_split']
         if init:
@@ -159,12 +164,13 @@ class LightGCN(BasicModel):
         all_users, all_items = self.computer()
         users_emb = all_users[users.long()]
         items_emb = all_items
+
         if t1 is not None:
             rating = self.f(
                     (torch.matmul(users_emb, items_emb.t()) + t1)/t2
                 )
         else:
-            rating = self.f(torch.matmul(users_emb, items_emb.t()))
+            rating = torch.matmul(users_emb, items_emb.t())
         return rating
 
     def getEmbedding(self, users, pos_items, neg_items):
@@ -353,7 +359,7 @@ class LightUni(LightGCN):
 class Expert(nn.Module):
     def __init__(self, dims):
         super(Expert, self).__init__()
-        self.mlp = nn.Sequential(nn.Linear(dims[0], dims[1]),nn.ReLU(),nn.Linear(dims[1], dims[2]))
+        self.mlp = nn.Sequential(nn.Linear(dims[0], dims[1]),nn.Linear(dims[1], dims[2]),nn.ReLU())
 
     def forward(self, x):
         return self.mlp(x)
@@ -369,7 +375,8 @@ class LightExpert(LightGCN):
             self.dataset = dataset
             self.tea = teacher_model
             self.tea.fix = True
-            self.init_weight(True)
+            self.de_weight=config['de_weight']
+
 
             # Expert Configuration
             self.num_experts =self.config["num_expert"]
@@ -420,24 +427,43 @@ class LightExpert(LightGCN):
                 eps = 1e-10  # for numerical stability
                 selection_dist = selection_dist + eps
                 selection_dist = self.sm((selection_dist.log() + g) / self.T)
-
                 selection_dist = torch.unsqueeze(selection_dist, 1)  # batch_size x 1 x num_experts
-
                 selection_result = selection_dist.repeat(1, self.tea.latent_dim,
                                                          1)  # batch_size x teacher_dims x num_experts
-
             expert_outputs = [experts[i](s).unsqueeze(-1) for i in range(self.num_experts)]  # s -> t
             expert_outputs = torch.cat(expert_outputs, -1)  # batch_size x teacher_dims x num_experts
-
             expert_outputs = expert_outputs * selection_result  # batch_size x teacher_dims x num_experts
             expert_outputs = expert_outputs.sum(2)  # batch_size x teacher_dims
-
             DE_loss = torch.mean(((t - expert_outputs) ** 2).sum(-1))
-
             return DE_loss
 
+    def bpr_loss(self, users, pos, neg, weights=None):
+        (users_emb, pos_emb, neg_emb,
+        userEmb0,  posEmb0, negEmb0) = self.getEmbedding(users.long(), pos.long(), neg.long())
+        reg_loss = (1/2)*(userEmb0.norm(2).pow(2) +
+                         posEmb0.norm(2).pow(2)  +
+                         negEmb0.norm(2).pow(2))/float(len(users))
+        pos_scores = torch.mul(users_emb, pos_emb)
+        pos_scores = torch.sum(pos_scores, dim=1)
+        neg_scores = torch.mul(users_emb, neg_emb)
+        neg_scores = torch.sum(neg_scores, dim=1)
 
-class MyModel(BasicModel):
+        if weights is not None:
+            # loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores) * weights)
+            x = (pos_scores - neg_scores)
+            loss = torch.mean(
+                torch.nn.functional.softplus(-x) + (1-weights)*x
+            )
+        else:
+            #loss = torch.mean(torch.nn.functional.softplus(neg_scores -pos_scores.reshape(pos_scores.shape[0],-1)))
+            loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores))
+        # de_loss_user = self.get_DE_loss(users.long(), is_user=True)
+        # de_loss_pos = self.get_DE_loss(pos.long(), is_user=False)
+        # de_loss_neg = self.get_DE_loss(neg.long(), is_user=False)
+        # de_loss = de_loss_user + de_loss_pos + de_loss_neg
+        return loss, reg_loss
+
+class MyModel(PairWiseModel):
     def __init__(self,
                  config        : dict,
                  dataset      : BasicDataset,
@@ -460,19 +486,19 @@ class MyModel(BasicModel):
 
         self.latent_dim_tea = self.tea.latent_dim
         self.transfer_user_1 = nn.Sequential(
-            nn.Linear(self.latent_dim_tea, self.latent_dim),
+            nn.Linear(self.latent_dim_tea, self.student_1.latent_dim),
         )
         self.transfer_item_1 = nn.Sequential(
-            nn.Linear(self.latent_dim_tea, self.latent_dim)
+            nn.Linear(self.latent_dim_tea, self.student_1.latent_dim),
         )
         self.transfer_user_2 = nn.Sequential(
-            nn.Linear(self.latent_dim_tea, self.latent_dim),
+            nn.Linear(self.latent_dim_tea, self.student_2.latent_dim),
         )
         self.transfer_item_2 = nn.Sequential(
-            nn.Linear(self.latent_dim_tea, self.latent_dim)
+            nn.Linear(self.latent_dim_tea, self.student_2.latent_dim)
         )
-        # self.f = nn.Sigmoid()
-        self.f = nn.ReLU()
+        self.f = nn.Sigmoid()
+        #self.f = nn.ReLU()
         # self.f = nn.LeakyReLU()
 
 
@@ -491,19 +517,91 @@ class MyModel(BasicModel):
             t2 = self.tea.embedding_item(batch_item)
             transfer_1 = self.transfer_user_2
             transfer_2 = self.transfer_item_2
-        transfer_out_1=transfer_1(t1)
-        transfer_out_2=transfer_2(t2)
+        transfer_out_1=torch.sigmoid(transfer_1(t1))
+        transfer_out_2=torch.sigmoid(transfer_2(t2))
         out_1=torch.mean(((s1 - transfer_out_1) ** 2).sum(-1))
         out_2 = torch.mean(((s2 - transfer_out_2) ** 2).sum(-1))
 
         return out_1+out_2
 
-    def get_distance_loss(self, batch_item, batch_user):
-        s1_user = self.student_1.embedding_user(batch_user)
-        s1_item = self.student_1.embedding_item(batch_item)
-        s2_user = self.student_2.embedding_user(batch_user)
-        s2_item = self.student_2.embedding_item(batch_item)
-        out_1 = torch.mean(((s1_user - s2_user) ** 2).sum(-1))
-        out_2 = torch.mean(((s1_item - s2_item) ** 2).sum(-1))
-        return torch.div(1,out_1) + torch.div(1,out_2)
+    def get_DE_loss(self, batch_item, is_user=False):
+        if is_user:
+            s1 = self.student_1.embedding_user(batch_item)
+            s2 = self.student_2.embedding_user(batch_item)
+        else:
+            s1 = self.student_1.embedding_item(batch_item)
+            s2 = self.student_2.embedding_item(batch_item)
+        out_1 = torch.mean(((s1 - s2) ** 2).sum(-1))
+        return torch.reciprocal(out_1)
+
+
+    def bpr_loss(self, users, pos, neg, weights=None):
+        dim_item = neg.shape[-1]
+        vector_user = neg.repeat((dim_item, 1)).t().reshape((-1,))
+        vector_item = neg.reshape((-1,))
+
+        student_scores= self.student_1(vector_user, vector_item).reshape((-1, dim_item))
+        # ----
+        _, top1 = student_scores.max(dim=1)
+        idx = torch.arange(len(users))
+        negitems = neg[idx, top1]
+        # ----
+        loss1,reg_loss1=self.student_1.bpr_loss(users,pos,negitems,weights)
+
+        student_scores = self.student_2(vector_user, vector_item).reshape((-1, dim_item))
+        # ----
+        _, top1 = student_scores.max(dim=1)
+        idx = torch.arange(len(users))
+        negitems= neg[idx, top1]
+        loss2, reg_loss2 = self.student_2.bpr_loss(users, pos, negitems, weights)
+
+        return loss1+loss2, reg_loss1+reg_loss2
+
+    def forward(self, users, items):
+        """
+        without sigmoid
+        """
+        gamma     = self.student_2(users,items)
+        return gamma
+
+    def getUsersRating(self, users, t1=None, t2=None):
+        rating=self.student_2.getUsersRating(users)
+        return rating
+
+class newModel(LightGCN):
+        def __init__(self,
+                     config: dict,
+                     dataset: BasicDataset,
+                     teacher_model: LightGCN):
+            super(newModel, self).__init__(config, dataset, init=True)
+            self.config = config
+            self.dataset = dataset
+            self.tea = teacher_model
+            self.tea.fix = True
+            self.popularity = self.dataset.popularity() + 1
+            sum_popularit = np.sum(self.popularity)
+            self.popularity = self.popularity / sum_popularit
+            self.popularity = torch.tensor(np.power(self.popularity, world.lambda_pop)).float().to(world.DEVICE)
+
+
+
+        def bpr_loss(self, users, pos, neg, weights=None):
+
+            (users_emb, pos_emb, neg_emb,
+             userEmb0, posEmb0, negEmb0) = self.getEmbedding(users.long(), pos.long(), neg.long())
+            reg_loss = (1 / 2) * (userEmb0.norm(2).pow(2) +
+                                  posEmb0.norm(2).pow(2) +
+                                  negEmb0.norm(2).pow(2)) / float(len(users))
+            pos_scores = torch.mul(users_emb, pos_emb)
+            pos_scores = torch.sum(pos_scores, dim=1)
+            neg_scores = torch.mul(users_emb, neg_emb)
+            neg_scores = torch.sum(neg_scores, dim=1)
+            tea_score=self.tea(users,pos)
+            pos_popularity = self.popularity[pos]
+            kd_loss1 = torch.mean((pos_scores - torch.mul(tea_score,pos_popularity)) ** 2)
+            tea_score = self.tea(users, neg)
+            pos_popularity = self.popularity[neg]
+            kd_loss2 = torch.mean((pos_scores - torch.mul(tea_score, pos_popularity)) ** 2)
+            loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores))
+            return loss+(kd_loss1+kd_loss2)*world.kd_weight, reg_loss
 

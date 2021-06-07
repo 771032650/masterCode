@@ -22,6 +22,26 @@ LOG_PATH = os.path.join(ROOT_PATH, 'log')
 
 sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
+# ROOT_PATH = '/gdata1/chengang/KD'
+# CODE_PATH = os.path.join('/ghome/chengang/KD', 'code')
+# FILE_PATH = os.path.join('/gdata1/chengang/KD', 'checkpoints')
+# BOARD_PATH = os.path.join('/gdata1/chengang/KD', 'runs')
+# #DATA_PATH = os.path.join(ROOT_PATH, 'data')
+# DATA_PATH = ROOT_PATH+'/data'
+# LOG_PATH = os.path.join('/gdata1/chengang/KD', 'log')
+#
+# sys.path.append(os.path.join(CODE_PATH, 'sources'))
+
+# ROOT_PATH = '/data/chengang/KD'
+# CODE_PATH = os.path.join('/home/chengang/KD', 'code')
+# FILE_PATH = os.path.join('/data/chengang/KD', 'checkpoints')
+# BOARD_PATH = os.path.join('/data/chengang/KD', 'runs')
+# #DATA_PATH = os.path.join(ROOT_PATH, 'data')
+# DATA_PATH = ROOT_PATH+'/data'
+# LOG_PATH = os.path.join('/data/chengang/KD', 'log')
+#
+# sys.path.append(os.path.join(CODE_PATH, 'sources'))
+
 args = parse_args()
 ARGS = args
 EMBEDDING = args.embedding
@@ -32,7 +52,7 @@ SAMPLE_METHOD = args.sampler
 
 config = {}
 all_dataset = ['lastfm', 'gowalla', 'yelp2018', 'amazon']
-all_models = ['mf', 'lgn']
+all_models = ['mf', 'lgn','newModel']
 # config['batch_size'] = 4096
 config['bpr_batch_size'] = args.bpr_batch
 config['latent_dim_rec'] = args.recdim
@@ -53,7 +73,14 @@ config['teacher_model'] = 'lgn'
 config['num_expert'] = args.num_expert
 config['de_loss'] = args.de_loss
 config['de_weight'] = args.de_weight
+kd_weight=args.kd_weight
+de_weight=args.de_weight
+if SAMPLE_METHOD=='RD':
+    loss_weight=1-kd_weight
+else:
+    loss_weight=1
 DNS_K = args.dns_k
+margin=args.margin
 method = args.method
 if method == 'dns' and DNS_K == 1:
     method = 'original'
@@ -62,13 +89,15 @@ GPU = torch.cuda.is_available()
 DEVICE = torch.device('cuda' if GPU else "cpu")
 CORES = multiprocessing.cpu_count() // 2
 SEED = args.seed
-
+lambda_pop= args.lambda_pop
 dataset = args.dataset
 model_name = args.model
 if model_name == 'lgn' and args.layer == 0:
     model_method = 'mf'
 else:
     model_method = 'lgn'
+# else:
+#     model_method = 'lgn'
 # if dataset not in all_dataset:
 # raise NotImplementedError(f"Haven't supported {dataset} yet!, try {all_dataset}")
 if model_name not in all_models:

@@ -58,12 +58,10 @@ utils.load(teacher_model, teacher_weight_file)
 # ----------------------------------------------------------------------------
 # loading student
 world.cprint('student')
-if world.EMBEDDING==1:
-    student_model = register.MODELS['leb'](world.config, dataset, teacher_model)
-    print(student_model)
-elif world.DE_EMBEDDING==1:
+if world.SAMPLE_METHOD=='DE_RRD':
     student_model = register.MODELS['lep'](world.config, dataset, teacher_model)
-    print(student_model)
+if world.SAMPLE_METHOD=='SD':
+    student_model = register.MODELS['newModel'](world.config, dataset, teacher_model)
 else:
     student_model = register.MODELS[world.model_name](world.config, dataset)
 
@@ -80,11 +78,11 @@ bpr = utils.BPRLoss(student_model, world.config)
 # ----------------------------------------------------------------------------
 # get names
 file = utils.getFileName(world.model_name, 
-                         world.dataset, 
+                         world.dataset,
                          world.config['latent_dim_rec'], 
                          layers=world.config['lightGCN_n_layers'],
                          dns_k=world.DNS_K)
-file = world.SAMPLE_METHOD + '-' + file
+file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+ '-' + file
 weight_file = os.path.join(world.FILE_PATH, file)
 print('-------------------------')
 print(f"load and save student to {weight_file}")
@@ -122,7 +120,8 @@ try:
         )
         # snapshot = tracemalloc.take_snapshot()
         # utils.display_top(snapshot)
-        if epoch %5 == 0 and epoch != 0:
+        print(f"    [TEST TIME] {time.time() - start}")
+        if epoch %5 == 0:
             start = time.time()
             cprint("    [TEST]")
             results = Procedure.Test(dataset, student_model, epoch, w, world.config['multicore'], valid=True)

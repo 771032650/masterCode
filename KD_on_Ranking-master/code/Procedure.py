@@ -134,12 +134,8 @@ def BPR_train_DNS_neg(dataset, recommend_model, loss_class, epoch, w=None):
     Recmodel.train()
     bpr: utils.BPRLoss = loss_class
     S = UniformSample_DNS(dataset, world.DNS_K)
-    users = torch.Tensor(S[:, 0]).long()
-    posItems = torch.Tensor(S[:, 1]).long()
-    negItems = torch.Tensor(S[:, 2:]).long()
-    users = users.to(world.DEVICE)
-    posItems = posItems.to(world.DEVICE)
-    negItems = negItems.to(world.DEVICE)
+    S = torch.Tensor(S).long().to(world.DEVICE)
+    users, posItems, negItems = S[:, 0], S[:, 1], S[:, 2:]
     users, posItems, negItems = utils.shuffle(users, posItems, negItems)
     total_batch = len(users) // world.config['bpr_batch_size'] + 1
     aver_loss = 0.
@@ -204,7 +200,6 @@ def BPR_train_original(dataset, recommend_model, loss_class, epoch, w=None):
                             negItems,
                             batch_size=world.config['bpr_batch_size'])):
         if world.ALLDATA:
-            print(world.ALLDATA)
             weights = utils.getTestweight(batch_users, batch_pos, dataset)
         else:
             weights = None
@@ -231,16 +226,18 @@ def test_one_batch(X):
     sorted_items = X[0].numpy()
     groundTrue = X[1]
     r = utils.getLabel(groundTrue, sorted_items)
-    pre, recall, ndcg = [], [], []
+    pre, recall, ndcg,dcg = [], [], [],[]
     for k in world.topks:
         ret = utils.RecallPrecision_ATk(groundTrue, r, k)
         pre.append(ret['precision'])
         recall.append(ret['recall'])
         ndcg.append(utils.NDCGatK_r(groundTrue, r, k))
+        #dcg.append(utils.NDCGatK_r_ONE(r, k))
     return {
         'recall': np.array(recall),
         'precision': np.array(pre),
-        'ndcg': np.array(ndcg)
+        'ndcg': np.array(ndcg),
+        #'dcg':np.array(dcg)
     }
 
 
@@ -344,6 +341,204 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
             results = {
                 'precision': np.zeros(len(world.topks)),
                 'recall': np.zeros(len(world.topks)),
+                'ndcg': np.zeros(len(world.topks)),
+                #'dcg': np.zeros(len(world.topks))
+            }
+            if multicore == 1:
+                pre_results = pool.map(test_one_batch, X)
+            else:
+                pre_results = []
+                for x in X:
+                    pre_results.append(test_one_batch(x))
+            scale = float(u_batch_size / len(users))
+            for result in pre_results:
+                results['recall'] += result['recall']
+                results['precision'] += result['precision']
+                results['ndcg'] += result['ndcg']
+                #results['dcg'] += result['dcg']
+            results['recall'] /= float(len(users))
+            results['precision'] /= float(len(users))
+            results['ndcg'] /= float(len(users))
+            #results['dcg'] /= float(len(users))
+            if w:
+                w.add_scalars(
+                    f'Valid/Recall@{world.topks}', {
+                        str(world.topks[i]): results['recall'][i]
+                        for i in range(len(world.topks))
+                    }, epoch)
+                w.add_scalars(
+                    f'Valid/Precision@{world.topks}', {
+                        str(world.topks[i]): results['precision'][i]
+                        for i in range(len(world.topks))
+                    }, epoch)
+                w.add_scalars(
+                    f'Valid/NDCG@{world.topks}', {
+                        str(world.topks[i]): results['ndcg'][i]
+                        for i in range(len(world.topks))
+                    }, epoch)
+        if multicore == 1:
+            pool.close()
+        return results
+
+
+def Popularity_Bias(dataset, Recmodel, valid=True,max_k=10):
+
+    u_batch_size = world.config['test_u_batch_size']
+    dataset: utils.BasicDataset
+    testDict: dict
+    Popularity = np.zeros(dataset.m_items, ).astype('int')
+    if valid:
+        testDict = dataset.validDict
+    else:
+        testDict = dataset.testDict
+    Recmodel: model.LightGCN
+    perUser = int(dataset.trainDataSize / dataset.n_users)
+    # eval mode with no dropout
+    Recmodel.eval()
+    max_K = max_k
+    user_topk = np.zeros((dataset.n_users, max_K), dtype=int)
+    with torch.no_grad():
+        users = list(testDict.keys())
+        rating_list = []
+        groundTrue_list = []
+        # ratings = []
+        total_batch = len(users) // u_batch_size + 1
+        for batch_users in utils.minibatch(users, batch_size=u_batch_size):
+            allPos = dataset.getUserPosItems(batch_users)
+            batch_users_gpu = torch.Tensor(batch_users).long()
+            batch_users_gpu = batch_users_gpu.to(world.DEVICE)
+            rating = Recmodel.getUsersRating(batch_users_gpu)
+            rating = rating.cpu()
+            exclude_index = []
+            exclude_items = []
+            if not world.TESTDATA:
+                for range_i, items in enumerate(allPos):
+                    exclude_index.extend([range_i] * len(items))
+                    exclude_items.extend(items)
+                rating[exclude_index, exclude_items] = -1e5
+            _, rating_K = torch.topk(rating, k=max_K)
+            del rating
+            rating_K = rating_K.numpy().astype('int')
+            groundTrue = [testDict[u] for u in batch_users]
+            rating_list.append(rating_K)
+            groundTrue_list.append(groundTrue)
+            user_topk[batch_users] = rating_K
+            for i in range(len(batch_users)):
+                Popularity[rating_K[i]] += 1
+        X = zip(rating_list, groundTrue_list)
+        r=None
+        flag=0
+        for x in X:
+            sorted_items = x[0]
+            groundTrue = x[1]
+            if flag==0:
+                r=utils.getLabel(groundTrue, sorted_items)
+                flag=1
+            else:
+                k=utils.getLabel(groundTrue, sorted_items)
+                r=np.append(r,k,axis=0)
+    return Popularity.astype('int'), user_topk.astype("int"),r
+
+from sklearn.decomposition import PCA
+def embedPCA(Recmodel,n):
+    Recmodel: model.LightGCN
+    all_users, all_items = Recmodel.computer()
+    all_embed=torch.cat((all_items,all_users),0)
+    pca1 = PCA(n_components=n)
+    pca1.fit(all_embed.cpu().detach().numpy())
+    #print(pca1.explained_variance_ratio_)
+    #print(pca1.explained_variance_)
+    return pca1
+
+
+def Test_PCA(dataset, Recmodel, epoch, w=None, multicore=0, valid=True,pca_dim=32):
+    """evaluate models
+
+    Args:
+        dataset (BasicDatset): defined in dataloader.BasicDataset, loaded in register.py
+        Recmodel (PairWiseModel):
+        epoch (int):
+        w (SummaryWriter, optional): Tensorboard writer
+        multicore (int, optional): The num of cpu cores for testing. Defaults to 0.
+
+    Returns:
+        dict: summary of metrics
+    """
+    u_batch_size = world.config['test_u_batch_size']
+    dataset: utils.BasicDataset
+    testDict: dict
+    if valid:
+        testDict = dataset.validDict
+    else:
+        testDict = dataset.testDict
+    Recmodel: model.LightGCN
+    # eval mode with no dropout
+    Recmodel.eval()
+    pca1 = embedPCA(Recmodel, pca_dim)
+    max_K = max(world.topks)
+    if multicore == 1:
+        pool = multiprocessing.Pool(CORES)
+    with torch.no_grad():
+        users = list(testDict.keys())
+        users_list = []
+        rating_list = []
+        groundTrue_list = []
+        # ratings = []
+        total_batch = len(users) // u_batch_size + 1
+        for batch_users in utils.minibatch(users, batch_size=u_batch_size):
+            allPos = dataset.getUserPosItems(batch_users)
+            groundTrue = [testDict[u] for u in batch_users]
+            batch_users_gpu = torch.Tensor(batch_users).long()
+            batch_users_gpu = batch_users_gpu.to(world.DEVICE)
+
+            rating = Recmodel.getUsersRating(batch_users_gpu,pca1=pca1)
+            rating = rating.cpu()
+            exclude_index = []
+            exclude_items = []
+            if not world.TESTDATA:
+                for range_i, items in enumerate(allPos):
+                    exclude_index.extend([range_i] * len(items))
+                    exclude_items.extend(items)
+                rating[exclude_index, exclude_items] = -1e5
+            _, rating_K = torch.topk(rating, k=max_K)
+            del rating
+            users_list.append(batch_users)
+            rating_list.append(rating_K.cpu())
+            groundTrue_list.append(groundTrue)
+        assert total_batch == len(users_list)
+        X = zip(rating_list, groundTrue_list)
+        if world.ONE:
+            results = {
+                'hr': np.zeros(len(world.topks)),
+                'ndcg': np.zeros(len(world.topks))
+            }
+            if multicore == 1:
+                pre_results = pool.map(test_one_batch, X)
+            else:
+                pre_results = []
+                for x in X:
+                    pre_results.append(test_one_batch_ONE(x))
+            scale = float(u_batch_size / len(users))
+            for result in pre_results:
+                results['hr'] += result['hr']
+                results['ndcg'] += result['ndcg']
+            results['hr'] /= float(len(users))
+            results['ndcg'] /= float(len(users))
+            if w:
+                w.add_scalars(
+                    f'Valid/HR@{world.topks}', {
+                        str(world.topks[i]): results['hr'][i]
+                        for i in range(len(world.topks))
+                    }, epoch)
+                w.add_scalars(
+                    f'Valid/NDCG@{world.topks}', {
+                        str(world.topks[i]): results['ndcg'][i]
+                        for i in range(len(world.topks))
+                    }, epoch)
+        else:
+            results = {
+                'precision': np.zeros(len(world.topks)),
+                'recall': np.zeros(len(world.topks)),
                 'ndcg': np.zeros(len(world.topks))
             }
             if multicore == 1:
@@ -381,7 +576,7 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
         return results
 
 
-def Popularity_Bias(dataset, Recmodel, valid=True):
+def Popularity_Bias_PCA(dataset, Recmodel, valid=True,pca_dim=32):
 
     u_batch_size = world.config['test_u_batch_size']
     dataset: utils.BasicDataset
@@ -395,8 +590,9 @@ def Popularity_Bias(dataset, Recmodel, valid=True):
     perUser = int(dataset.trainDataSize / dataset.n_users)
     # eval mode with no dropout
     Recmodel.eval()
-    max_K = perUser
+    max_K = 10
     user_topk = np.zeros((dataset.n_users, max_K), dtype=int)
+    pca1=embedPCA(Recmodel,pca_dim)
     with torch.no_grad():
         users = list(testDict.keys())
         rating_list = []
@@ -407,7 +603,7 @@ def Popularity_Bias(dataset, Recmodel, valid=True):
             batch_users_gpu = torch.Tensor(batch_users).long()
             batch_users_gpu = batch_users_gpu.to(world.DEVICE)
 
-            rating = Recmodel.getUsersRating(batch_users_gpu)
+            rating = Recmodel.getUsersRating(batch_users_gpu,pca1=pca1)
             rating = rating.cpu()
             exclude_index = []
             exclude_items = []

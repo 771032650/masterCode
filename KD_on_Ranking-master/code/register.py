@@ -29,6 +29,8 @@ if world.DISTILL:
     print("comment:", world.comment)
     print("tensorboard:", world.tensorboard)
     print("Test Topks:", world.topks)
+    print("kd weight:", world.kd_weight)
+    print("lambda_pop:", world.lambda_pop)
     print('===========end===================')
 else:
     print('===========config================')
@@ -47,15 +49,18 @@ else:
 
 MODELS = {
     'lgn': model.LightGCN,
-    'leb': model.LightEmb,
-    'lep': model.LightExpert
+    'leb': model.MyModel,
+    'lep': model.LightExpert,
+    'newModel':model.newModel
 }
 
 SAMPLER = {
     'combine' : sample.DistillSample,
     'RD'     : sample.RD,
     'CD'     : sample.CD,
-    'RRD'     : sample.RRD
+    'DE_RRD'     : sample.RRD,
+    'TD':sample.PopularitySample,
+    'SD':sample.SimpleSample,
 }
 
 TRAIN = {

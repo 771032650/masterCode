@@ -1,3 +1,4 @@
+#!/opt/conda/bin/python
 '''
 Created on Mar 1, 2020
 Pytorch Implementation of LightGCN in
@@ -32,44 +33,45 @@ if len(world.comment) == 0:
 import register
 from register import dataset
 
-if world.EMBEDDING:
-    # embedding distillation
-    print("distill")
-    tea_config = utils.getTeacherConfig(world.config)
-    world.cprint('teacher')
-    teacher_model = register.MODELS[world.model_name](tea_config,
-                                                      dataset,
-                                                      fix=True)
-    teacher_model.eval()
-    teacher_file = utils.getFileName(world.model_name,
-                                     world.dataset,
-                                     world.config['teacher_dim'],
-                                     layers=world.config['teacher_layer'])
-    teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
-    print('-------------------------')
-    world.cprint("loaded teacher weights from")
-    print(teacher_weight_file)
-    print('-------------------------')
-    utils.load(teacher_model, teacher_weight_file)
-    teacher_model = teacher_model.to(world.DEVICE)
-    cprint("[TEST Teacher]")
-    results = Procedure.Test(dataset, teacher_model, 0, None,
-                             world.config['multicore'])
-    pprint(results)
-    Recmodel = register.MODELS['leb'](world.config, dataset, teacher_model)
-    print(Recmodel)
-else:
-    Recmodel = register.MODELS[world.model_name](world.config, dataset)
-
+# if world.EMBEDDING:
+#     # embedding distillation
+#     print("distill")
+#     tea_config = utils.getTeacherConfig(world.config)
+#     world.cprint('teacher')
+#     teacher_model = register.MODELS[world.model_name](tea_config,
+#                                                       dataset,
+#                                                       fix=True)
+#     teacher_model.eval()
+#     teacher_file = utils.getFileName(world.model_name,
+#                                      world.dataset,
+#                                      world.config['teacher_dim'],
+#                                      layers=world.config['teacher_layer'])
+#     teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
+#     print('-------------------------')
+#     world.cprint("loaded teacher weights from")
+#     print(teacher_weight_file)
+#     print('-------------------------')
+#     utils.load(teacher_model, teacher_weight_file)
+#     teacher_model = teacher_model.to(world.DEVICE)
+#     cprint("[TEST Teacher]")
+#     results = Procedure.Test(dataset, teacher_model, 0, None,
+#                              world.config['multicore'])
+#     pprint(results)
+#     Recmodel = register.MODELS['leb'](world.config, dataset, teacher_model)
+#     print(Recmodel)
+# else:
+#     Recmodel = register.MODELS[world.model_name](world.config, dataset)
+Recmodel = register.MODELS[world.model_name](world.config, dataset)
 procedure = register.TRAIN[world.method]
 bpr = utils.BPRLoss(Recmodel, world.config)
 # ----------------------------------------------------------------------------
 file = utils.getFileName(world.model_name,
                          world.dataset,
-                         world.config['teacher_dim'],
-                         layers=world.config['teacher_layer'])
+                         world.config['latent_dim_rec'],
+                         layers=world.config['lightGCN_n_layers'],
+                         dns_k=world.DNS_K)
 
-weight_file = os.path.join(world.FILE_PATH, file)
+weight_file = os.path.join(world.FILE_PATH, file)+"-"+str(world.config['lr'])
 print(f"load and save to {weight_file}")
 if world.LOAD:
     utils.load(Recmodel, weight_file)
@@ -107,7 +109,7 @@ try:
                                      w,
                                      world.config['multicore'],
                                      valid=True)
-            pprint(results)
+            print(results)
             if earlystop.step(epoch, results):
                 print("trigger earlystop")
                 print(f"best epoch:{earlystop.best_epoch}")
