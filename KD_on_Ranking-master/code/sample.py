@@ -336,6 +336,8 @@ class CD:
         # self.userneglist=[]
         # for user in range(self.dataset.n_users):
         #     self.userneglist.append(np.delete(neglist, self.crsNeg[user], -1))
+        with timer(name="CD sample"):
+            self.get_rank_sample(MODEL=self.teacher)
     def PerSample(self, batch=None):
         if self.strategy == "random":
             MODEL = None
@@ -346,8 +348,8 @@ class CD:
         else:
             raise TypeError("CD support [random, student guide, teacher guide], " \
                             f"But got {self.strategy}")
-        with timer(name="CD sample"):
-            self.get_rank_sample(MODEL=MODEL)
+        # with timer(name="CD sample"):
+        #     self.get_rank_sample(MODEL=MODEL)
         if batch is not None:
             return UniformSample_DNS_yield(self.dataset,
                                            self.dns_k,
@@ -467,7 +469,7 @@ class RRD:
     def __init__(self,dataset: BasicDataset,
                 student: PairWiseModel,
                 teacher: PairWiseModel,
-                 dns,T=100, K=10, L=10):
+                 dns,T=100, K=5, L=5):
         self.student = student
         self.teacher = teacher.eval()
 
@@ -541,12 +543,12 @@ class RRD:
 
 
     def relaxed_ranking_loss(self,S1,S2):
-        above = S1.sum(1, keepdims=True)
+        above = S1.sum(1, keepdim=True)
 
         below1 = S1.flip(-1).exp().cumsum(1)
-        below2 = S2.exp().sum(1, keepdims=True)
+        below2 = S2.exp().sum(1, keepdim=True)
 
-        below = (below1 + below2).log().sum(1, keepdims=True)
+        below = (below1 + below2).log().sum(1, keepdim=True)
 
         return above - below
 
@@ -598,11 +600,13 @@ class PopularitySample:
         max_popularit=np.sum(self.popularity)
         self.popularity=self.popularity/max_popularit
         self.popularity=torch.tensor(np.power(self.popularity,world.lambda_pop)).to(world.DEVICE)
-        #self.popularity=1/self.popularity
+        self.popularity=1/self.popularity
+        self.loca = 0
         self.generate_negative_samples()
-        #self.popularity_score_sample()
-    def PerSample(self, batch=None):
         self.popularity_score_sample()
+
+    def PerSample(self, batch=None):
+        #self.popularity_score_sample()
         if batch is not None:
             return UniformSample_DNS_yield(self.dataset,
                                            self.dns_k,
@@ -632,6 +636,7 @@ class PopularitySample:
                 scores[exclude_user, exclude_item] = -1e5
                 # -----
                 rank_scores, neg_item = torch.topk(scores, z)
+                #rank_scores=torch.sigmoid(rank_scores/3)
                 neg_popularity=self.popularity[neg_item]
                 # n_min=torch.min(torch.mul(rank_scores.double(),neg_popularity),dim=-1)[0].reshape((-1,1))
                 # n_min=n_min.repeat(1,z)
@@ -644,12 +649,19 @@ class PopularitySample:
     def popularity_score_sample(self):
 
         self.interesting_items = torch.zeros((self.dataset.n_users, self.K))
+        c=self.loca+self.K
+        if c>1000 :
+            c=10-(1000-self.loca)
         for user in range(self.dataset.n_users):
             sameple_ratio=self.sameple_ratio[user]
-            samples = torch.multinomial(sameple_ratio, self.K, replacement=False)
+            #samples = torch.multinomial(sameple_ratio, self.K, replacement=False)
+            #samples = sameple_ratio[self.loca:c]
             negItems = self.sameple_item[user].long()
-            #scores,samples = torch.topk(sameple_ratio, self.K)
+            scores,samples = torch.topk(sameple_ratio, self.K)
+            if user%10==1:
+                print(samples)
             self.interesting_items[user]=negItems[samples]
+        self.loca=c
         return self.interesting_items.to(world.DEVICE)
 
     def _generateStaticWeights(self):
@@ -691,13 +703,13 @@ class PopularitySample:
         # PD_loss = PD_loss.sum(1).mean()
         x = ((samples_scores_S - torch.mul(samples_scores_T, m)) ** 2).sum(-1)
         PD_loss_1 = torch.mean(x)
-        samples_scores_T = TEACHER(batch_users,batch_pos)
-        samples_scores_S =STUDENT(batch_users,batch_pos)
-        m = self.popularity[batch_pos.long()].float()
-        x = ((samples_scores_S - torch.mul(samples_scores_T, m)) ** 2)
-        PD_loss_2 = torch.mean(x)
+        # samples_scores_T = TEACHER(batch_users,batch_pos)
+        # samples_scores_S =STUDENT(batch_users,batch_pos)
+        # m = self.popularity[batch_pos.long()].float()
+        # x = ((samples_scores_S - torch.mul(samples_scores_T, m)) ** 2)
+        # PD_loss_2 = torch.mean(x)
 
-        return negitems, None, PD_loss_1+PD_loss_2
+        return negitems, None, PD_loss_1
 
 
 # ==============================================================

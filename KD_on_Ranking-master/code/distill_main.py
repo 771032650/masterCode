@@ -60,7 +60,7 @@ utils.load(teacher_model, teacher_weight_file)
 world.cprint('student')
 if world.SAMPLE_METHOD=='DE_RRD':
     student_model = register.MODELS['lep'](world.config, dataset, teacher_model)
-if world.SAMPLE_METHOD=='SD':
+elif world.SAMPLE_METHOD=='SD':
     student_model = register.MODELS['newModel'](world.config, dataset, teacher_model)
 else:
     student_model = register.MODELS[world.model_name](world.config, dataset)
@@ -82,7 +82,7 @@ file = utils.getFileName(world.model_name,
                          world.config['latent_dim_rec'], 
                          layers=world.config['lightGCN_n_layers'],
                          dns_k=world.DNS_K)
-file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+ '-' + file
+file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-' + file
 weight_file = os.path.join(world.FILE_PATH, file)
 print('-------------------------')
 print(f"load and save student to {weight_file}")

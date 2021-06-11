@@ -31,9 +31,9 @@ file = utils.getFileName(world.model_name,
                          world.dataset,
                          world.config['latent_dim_rec'],
                          layers=world.config['lightGCN_n_layers'],
-                         dns_k=world.DNS_K
+                        dns_k=world.DNS_K
                          )
-file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+ '-' + file
+file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-' + file
 weight_file = os.path.join(world.FILE_PATH, file)
 print('-------------------------')
 world.cprint("loaded  weights from")
@@ -56,7 +56,7 @@ if world.SAMPLE_METHOD=='DE_RRD' or world.SAMPLE_METHOD=='SD':
                                                   fix=True)
     teacher_model.eval()
     utils.load(teacher_model, teacher_weight_file)
-    model = register.MODELS['newModel'](world.config,dataset,teacher_model)
+    model = register.MODELS['lep'](world.config,dataset,teacher_model)
 else:
     model = register.MODELS[world.model_name](world.config,
                                               dataset,
@@ -64,6 +64,18 @@ else:
 model.eval()
 utils.load(model, weight_file)
 model = model.to(world.DEVICE)
+#all_users, all_items = model.computer()
+# popularity=dataset.popularity()
+# # index=np.argsort(-popularity)
+# # popularity=popularity[index]
+# import matplotlib
+# import matplotlib.pyplot as plt
+# fig = plt.figure()
+# ax = fig.add_subplot(111)
+#
+# ax.scatter(range(len(popularity)),popularity)
+#
+# plt.show()
 # test teacher
 cprint("[TEST Teacher]")
 results = Procedure.Test(dataset, model, 0, None, world.config['multicore'], valid=False)
