@@ -12,15 +12,15 @@ import sys
 
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-ROOT_PATH = '..'
-CODE_PATH = os.path.join(ROOT_PATH, 'code')
-FILE_PATH = os.path.join(CODE_PATH, 'checkpoints')
-BOARD_PATH = os.path.join(CODE_PATH, 'runs')
-#DATA_PATH = os.path.join(ROOT_PATH, 'data')
-DATA_PATH = ROOT_PATH+'/data'
-LOG_PATH = os.path.join(ROOT_PATH, 'log')
-
-sys.path.append(os.path.join(CODE_PATH, 'sources'))
+# ROOT_PATH = '..'
+# CODE_PATH = os.path.join(ROOT_PATH, 'code')
+# FILE_PATH = os.path.join(CODE_PATH, 'checkpoints')
+# BOARD_PATH = os.path.join(CODE_PATH, 'runs')
+# #DATA_PATH = os.path.join(ROOT_PATH, 'data')
+# DATA_PATH = ROOT_PATH+'/data'
+# LOG_PATH = os.path.join(ROOT_PATH, 'log')
+#
+# sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
 # ROOT_PATH = '/gdata1/chengang/KD'
 # CODE_PATH = os.path.join('/ghome/chengang/KD', 'code')
@@ -32,15 +32,15 @@ sys.path.append(os.path.join(CODE_PATH, 'sources'))
 #
 # sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
-# ROOT_PATH = '/data/chengang/KD'
-# CODE_PATH = os.path.join('/home/chengang/KD', 'code')
-# FILE_PATH = os.path.join('/data/chengang/KD', 'checkpoints')
-# BOARD_PATH = os.path.join('/data/chengang/KD', 'runs')
-# #DATA_PATH = os.path.join(ROOT_PATH, 'data')
-# DATA_PATH = ROOT_PATH+'/data'
-# LOG_PATH = os.path.join('/data/chengang/KD', 'log')
-#
-# sys.path.append(os.path.join(CODE_PATH, 'sources'))
+ROOT_PATH = '/data/chengang/KD'
+CODE_PATH = os.path.join('/home/chengang/KD', 'code')
+FILE_PATH = os.path.join('/data/chengang/KD', 'checkpoints')
+BOARD_PATH = os.path.join('/data/chengang/KD', 'runs')
+#DATA_PATH = os.path.join(ROOT_PATH, 'data')
+DATA_PATH = ROOT_PATH+'/data'
+LOG_PATH = os.path.join('/data/chengang/KD', 'log')
+
+sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
 args = parse_args()
 ARGS = args
@@ -52,7 +52,7 @@ SAMPLE_METHOD = args.sampler
 
 config = {}
 all_dataset = ['lastfm', 'gowalla', 'yelp2018', 'amazon']
-all_models = ['mf', 'lgn','newModel']
+all_models = ['mf', 'lgn','newModel','ulgn','myModel','ConditionalBPRMF','BPRMF']
 # config['batch_size'] = 4096
 config['bpr_batch_size'] = args.bpr_batch
 config['latent_dim_rec'] = args.recdim
@@ -92,6 +92,8 @@ SEED = args.seed
 lambda_pop= args.lambda_pop
 dataset = args.dataset
 model_name = args.model
+dataset_split=args.dataset_split
+teacher_model_name=args.teacher_model
 if model_name == 'lgn' and args.layer == 0:
     model_method = 'mf'
 else:

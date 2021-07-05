@@ -463,110 +463,116 @@ class LightExpert(LightGCN):
         # de_loss = de_loss_user + de_loss_pos + de_loss_neg
         return loss, reg_loss
 
-class MyModel(PairWiseModel):
+def GrpupBypopularity(dataset):
+    popularity = dataset.popularity() + 1
+    sum_popularit = np.sum(popularity)
+    popularity = popularity / sum_popularit
+    popularity = np.power(popularity, world.de_weight)
+    mappings=utils.split_item_popularity(popularity,int(world.lambda_pop))
+    # mappings = utils.map_item_N(popularity,
+    #                        [0.2,0.2,0.2,0.2,0.2])
+    popularityGroup=np.zeros([len(popularity)])
+    apt = 0
+    for mapping in mappings:
+        count = list(map(lambda x: x in mapping, range(len(popularity))))
+        for k in range(len(count)):
+            if count[k]==True:
+                popularityGroup[k]=apt
+        apt=apt+1
+
+    #metrics['precisionbygroup']=APT(groundTrue,mappings=mapping)
+    return popularityGroup
+
+
+class MyModel(LightGCN):
     def __init__(self,
                  config        : dict,
-                 dataset      : BasicDataset,
-                 teacher_model: LightGCN):
-        super(MyModel, self).__init__()
+                 dataset      : BasicDataset,):
+        super(MyModel, self).__init__(config, dataset, init=True,fix=False)
         self.config = config
         self.dataset = dataset
-        self.tea = teacher_model
-        self.tea.fix = True
-        self.__init_weight()
+        self.popularityGroup=torch.from_numpy(GrpupBypopularity(self.dataset))
 
-    def __init_weight(self):
-        self.student_1=LightGCN(self.config,self.dataset)
-        self.student_2 = LightGCN(self.config, self.dataset)
-        self._user_tea = self.tea.embedding_user.weight.data.to(world.DEVICE)
-        self._item_tea = self.tea.embedding_item.weight.data.to(world.DEVICE)
-        # print(self._user_tea.requires_grad, self._item_tea.requires_grad)
-        # not grad needed for teacher
+    def getEmbedding(self, users, pos_items, neg_items):
+        all_users, all_items = self.computer()
+        users_emb = all_users[users]
+        splite_k=int(world.lambda_pop)
+        meanPosEmbed = torch.mean(all_items, dim=0)
+        #meanPosEmbed=meanPosEmbed.detach()
+        pos_emb = all_items[pos_items]
+        neg_emb = all_items[neg_items]
+        for i in range(len(pos_items)):
+            for k in range(1,splite_k):
+                if self.popularityGroup[pos_items[i]]==k:
+                    pos_emb[i]=torch.cat((pos_emb[i][:-round(world.config['latent_dim_rec']/splite_k*k)],meanPosEmbed[-round(world.config['latent_dim_rec']/splite_k*k):]),dim=-1)
+                    break
+
+        for i in range(len(neg_items)):
+            for k in range(1, splite_k):
+                if self.popularityGroup[neg_items[i]] == k:
+                    neg_emb[i] = torch.cat((neg_emb[i][:-round(world.config['latent_dim_rec'] / splite_k * k)],
+                                            meanPosEmbed[-round(world.config['latent_dim_rec'] / splite_k * k):]),
+                                           dim=-1)
+                    break
+
+        users_emb_ego = self.embedding_user(users)
+        pos_emb_ego = self.embedding_item(pos_items)
+        neg_emb_ego = self.embedding_item(neg_items)
+        return users_emb, pos_emb, neg_emb, users_emb_ego, pos_emb_ego, neg_emb_ego
+
+  
 
 
-        self.latent_dim_tea = self.tea.latent_dim
-        self.transfer_user_1 = nn.Sequential(
-            nn.Linear(self.latent_dim_tea, self.student_1.latent_dim),
-        )
-        self.transfer_item_1 = nn.Sequential(
-            nn.Linear(self.latent_dim_tea, self.student_1.latent_dim),
-        )
-        self.transfer_user_2 = nn.Sequential(
-            nn.Linear(self.latent_dim_tea, self.student_2.latent_dim),
-        )
-        self.transfer_item_2 = nn.Sequential(
-            nn.Linear(self.latent_dim_tea, self.student_2.latent_dim)
-        )
-        self.f = nn.Sigmoid()
-        #self.f = nn.ReLU()
-        # self.f = nn.LeakyReLU()
 
-
-    def get_distill_loss(self,batch_item,batch_user, n_student=1):
-        if n_student==1:
-            s1 = self.student_1.embedding_user(batch_user)
-            s2 = self.student_1.embedding_item(batch_item)
-            t1 = self.tea.embedding_user(batch_user)
-            t2 = self.tea.embedding_item(batch_item)
-            transfer_1=self.transfer_user_1
-            transfer_2 = self.transfer_item_1
+def variantELU(scores):
+    n=len(scores)
+    for i in range(n):
+        if scores[i]>0:
+            scores[i]=scores[i]+1
         else:
-            s1 = self.student_2.embedding_user(batch_user)
-            s2 = self.student_2.embedding_item(batch_item)
-            t1 = self.tea.embedding_user(batch_user)
-            t2 = self.tea.embedding_item(batch_item)
-            transfer_1 = self.transfer_user_2
-            transfer_2 = self.transfer_item_2
-        transfer_out_1=torch.sigmoid(transfer_1(t1))
-        transfer_out_2=torch.sigmoid(transfer_2(t2))
-        out_1=torch.mean(((s1 - transfer_out_1) ** 2).sum(-1))
-        out_2 = torch.mean(((s2 - transfer_out_2) ** 2).sum(-1))
+            scores[i]=torch.exp(scores[i])
+    return scores
 
-        return out_1+out_2
+class UnbaisLGN(LightGCN):
+        def __init__(self,
+                     config: dict,
+                     dataset: BasicDataset):
+            super(UnbaisLGN, self).__init__(config, dataset, init=True,fix=False)
+            self.config = config
+            self.dataset = dataset
+            self.popularity = self.dataset.popularity() + 1
+            sum_popularit = np.sum(self.popularity)
+            self.popularity = self.popularity / sum_popularit
+            self.popularity = torch.tensor(np.power(self.popularity, world.lambda_pop)).float().to(world.DEVICE)
 
-    def get_DE_loss(self, batch_item, is_user=False):
-        if is_user:
-            s1 = self.student_1.embedding_user(batch_item)
-            s2 = self.student_2.embedding_user(batch_item)
-        else:
-            s1 = self.student_1.embedding_item(batch_item)
-            s2 = self.student_2.embedding_item(batch_item)
-        out_1 = torch.mean(((s1 - s2) ** 2).sum(-1))
-        return torch.reciprocal(out_1)
+        def bpr_loss(self, users, pos, neg, weights=None):
+            (users_emb, pos_emb, neg_emb,
+             userEmb0, posEmb0, negEmb0) = self.getEmbedding(users.long(), pos.long(), neg.long())
+            reg_loss = (1 / 2) * (userEmb0.norm(2).pow(2) +
+                                  posEmb0.norm(2).pow(2) +
+                                  negEmb0.norm(2).pow(2)) / float(len(users))
+            pos_scores = torch.mul(users_emb, pos_emb)
+            pos_scores = torch.sum(pos_scores, dim=1)
+            neg_scores = torch.mul(users_emb, neg_emb)
+            neg_scores = torch.sum(neg_scores, dim=1)
+            neg_popularity = self.popularity[neg]
+            pos_popularity = self.popularity[pos]
+            loss = torch.mean(torch.nn.functional.softplus(variantELU(neg_scores)*neg_popularity- variantELU(pos_scores)*pos_popularity))
+            return loss , reg_loss
 
+        # def getUsersRating(self, users, t1=None, t2=None):
+        #     all_users, all_items = self.computer()
+        #     users_emb = all_users[users.long()]
+        #     items_emb = all_items
+        #
+        #     if t1 is not None:
+        #         rating = self.f(
+        #                 (torch.matmul(users_emb, items_emb.t()) + t1)/t2
+        #             )
+        #     else:
+        #         rating = torch.matmul(users_emb, items_emb.t())
+        #     return rating*self.popularity
 
-    def bpr_loss(self, users, pos, neg, weights=None):
-        dim_item = neg.shape[-1]
-        vector_user = neg.repeat((dim_item, 1)).t().reshape((-1,))
-        vector_item = neg.reshape((-1,))
-
-        student_scores= self.student_1(vector_user, vector_item).reshape((-1, dim_item))
-        # ----
-        _, top1 = student_scores.max(dim=1)
-        idx = torch.arange(len(users))
-        negitems = neg[idx, top1]
-        # ----
-        loss1,reg_loss1=self.student_1.bpr_loss(users,pos,negitems,weights)
-
-        student_scores = self.student_2(vector_user, vector_item).reshape((-1, dim_item))
-        # ----
-        _, top1 = student_scores.max(dim=1)
-        idx = torch.arange(len(users))
-        negitems= neg[idx, top1]
-        loss2, reg_loss2 = self.student_2.bpr_loss(users, pos, negitems, weights)
-
-        return loss1+loss2, reg_loss1+reg_loss2
-
-    def forward(self, users, items):
-        """
-        without sigmoid
-        """
-        gamma     = self.student_2(users,items)
-        return gamma
-
-    def getUsersRating(self, users, t1=None, t2=None):
-        rating=self.student_2.getUsersRating(users)
-        return rating
 
 class newModel(LightGCN):
         def __init__(self,
@@ -578,12 +584,6 @@ class newModel(LightGCN):
             self.dataset = dataset
             self.tea = teacher_model
             self.tea.fix = True
-            self.popularity = self.dataset.popularity() + 1
-            sum_popularit = np.sum(self.popularity)
-            self.popularity = self.popularity / sum_popularit
-            self.popularity = torch.tensor(np.power(self.popularity, world.lambda_pop)).float().to(world.DEVICE)
-
-
 
         def bpr_loss(self, users, pos, neg, weights=None):
 
@@ -596,12 +596,267 @@ class newModel(LightGCN):
             pos_scores = torch.sum(pos_scores, dim=1)
             neg_scores = torch.mul(users_emb, neg_emb)
             neg_scores = torch.sum(neg_scores, dim=1)
-            tea_score=self.tea(users,pos)
-            pos_popularity = self.popularity[pos]
-            kd_loss1 = torch.mean((pos_scores - torch.mul(tea_score,pos_popularity)) ** 2)
-            tea_score = self.tea(users, neg)
-            pos_popularity = self.popularity[neg]
-            kd_loss2 = torch.mean((pos_scores - torch.mul(tea_score, pos_popularity)) ** 2)
-            loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores))
-            return loss+(kd_loss1+kd_loss2)*world.kd_weight, reg_loss
+            tea_all_user,tea_all_item=self.tea.computer()
+            tea_users_emb = tea_all_user[users.long()]
+            tea_pos_emb = tea_all_item[pos.long()]
+            tea_neg_emb = tea_all_item[neg.long()]
+            tea_pos_scores = torch.mul(tea_users_emb[:,:-world.config['latent_dim_rec']], tea_pos_emb[:,:-world.config['latent_dim_rec']])
+            tea_pos_scores = torch.sum(tea_pos_scores, dim=1)
+            tea_neg_scores = torch.mul(tea_users_emb[:,:-world.config['latent_dim_rec']], tea_neg_emb[:,:-world.config['latent_dim_rec']])
+            tea_neg_scores = torch.sum(tea_neg_scores, dim=1)
+            loss = torch.mean(torch.nn.functional.softplus(neg_scores+0.5*tea_neg_scores - pos_scores+0.5*tea_pos_scores))
+            return loss, reg_loss
 
+
+class ConditionalBPRMF(BasicModel):
+    '''
+    PD/PDA
+    PDG/PDG-A
+    '''
+
+    def __init__( self,config:dict,
+                 dataset:BasicDataset,
+                 fix:bool = False,
+                 init=True):
+        super(ConditionalBPRMF, self).__init__()
+        self.config=config
+        self.dataset=dataset
+        self.num_users = self.dataset.n_users
+        self.num_items = self.dataset.m_items
+        self.fix=fix
+        self.weights = self.init_weights(init)
+        self._statistics_params()
+        self.last_popularity=self.dataset.get_last_popularity()
+        self.last_popularity=torch.Tensor(self.last_popularity).to(world.DEVICE)
+
+    def init_weights(self,init):
+            if self.fix == True:
+                self.latent_dim = self.config['teacher_dim']
+                self.n_layers = self.config['teacher_layer']
+            else:
+                self.latent_dim = self.config['latent_dim_rec']
+                self.n_layers = self.config['lightGCN_n_layers']
+            self.keep_prob = self.config['keep_prob']
+            self.A_split = self.config['A_split']
+            weights = dict()
+            if init:
+                self.embedding_user = torch.nn.Embedding(
+                    num_embeddings=self.num_users, embedding_dim=self.latent_dim)
+                self.embedding_item = torch.nn.Embedding(
+                    num_embeddings=self.num_items, embedding_dim=self.latent_dim)
+                if self.config['pretrain'] == 0:
+                    nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
+                    nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
+                    # print('use xavier initilizer')
+                else:
+                    self.embedding_user.weight.data.copy_(torch.from_numpy(self.config['user_emb']))
+                    self.embedding_item.weight.data.copy_(torch.from_numpy(self.config['item_emb']))
+
+                    # print('use pretarined data')
+                weights['user_embedding'] = self.embedding_user.weight
+                weights['item_embedding'] = self.embedding_item.weight
+            self.f = nn.Sigmoid()
+            self.felu=nn.ELU()
+            return weights
+
+    def computer(self):
+        users_emb = self.embedding_user.weight
+        items_emb = self.embedding_item.weight
+
+        return users_emb, items_emb
+
+    def getUsersRating(self, users):
+        all_users, all_items = self.computer()
+        users_emb = all_users[users]
+        items = torch.Tensor(self.dataset.items).long().to(world.DEVICE)
+        items_emb = all_items[items]
+        rating = torch.matmul(users_emb, items_emb.t())
+        #rating=self.felu(rating) + 1
+        return rating
+
+    def getEmbedding(self, users, pos_items, neg_items):
+        all_users, all_items = self.computer()
+        users_emb = all_users[users]
+        pos_emb = all_items[pos_items]
+        neg_emb = all_items[neg_items]
+        users_emb_ego = self.embedding_user(users)
+        pos_emb_ego = self.embedding_item(pos_items)
+        neg_emb_ego = self.embedding_item(neg_items)
+        return users_emb,pos_emb,neg_emb,users_emb_ego, pos_emb_ego, neg_emb_ego
+
+    def create_bpr_loss_with_pop_global(self, users, pos_items,
+                                        neg_items,pos_pops,neg_pops):  # this global does not refer to global popularity, just a name
+        (users_emb, pos_emb, neg_emb,users_emb_ego, pos_emb_ego, neg_emb_ego) = self.getEmbedding(users.long(), pos_items.long(), neg_items.long())
+        pos_scores = torch.sum(users_emb*pos_emb,dim=1)  # users, pos_items, neg_items have the same shape
+        neg_scores = torch.sum(users_emb*neg_emb,dim=1)
+        # item stop
+        pos_scores = self.felu(pos_scores) + 1
+        neg_scores = self.felu(neg_scores) + 1
+        pos_scores_with_pop = pos_scores*pos_pops
+        neg_scores_with_pop = neg_scores*neg_pops
+
+        maxi = torch.log(self.f(pos_scores_with_pop - neg_scores_with_pop) + 1e-10)
+        #self.condition_ratings = (self.felu(self.batch_ratings) + 1) * pos_pops.squeeze()
+        #self.mf_loss_ori = -(torch.mean(maxi))
+        mf_loss = torch.neg(torch.mean(maxi))
+        # fsoft=nn.Softplus()
+        # mf_loss = -torch.mean(fsoft(pos_scores_with_pop - neg_scores_with_pop))
+        # regular
+        reg_loss = (1 / 2) * (users_emb_ego.norm(2).pow(2) +
+                              pos_emb_ego.norm(2).pow(2) +
+                              neg_emb_ego.norm(2).pow(2)) / float(len(users))
+        return mf_loss, reg_loss
+
+
+    def _statistics_params(self):
+        # number of params
+        total_parameters = 0
+        for variable in self.weights.values():
+            shape = variable.shape  # shape is an array of tf.Dimension
+            variable_parameters = 1
+            for dim in shape:
+                variable_parameters *= dim
+            total_parameters += variable_parameters
+        print("#params: %d" % total_parameters)
+
+    def bpr_loss(self, users, pos_items,neg_items,pos_pops,neg_pops,weights=None):
+        return  self.create_bpr_loss_with_pop_global(users, pos_items,neg_items,pos_pops,neg_pops)
+
+    def forward(self, users, items):
+        """
+        without sigmoid
+        """
+        all_users, all_items = self.computer()
+        users_emb = all_users[users]
+        items_emb = all_items[items]
+        rating = torch.sum(users_emb*items_emb,dim=1)
+        return rating
+
+    def pre_pop(self, users, items):
+        """
+        without sigmoid
+        """
+        all_users, all_items = self.computer()
+        users_emb = all_users[users]
+        items_emb = all_items[items]
+        rating =torch.sum(users_emb*items_emb,dim=1)
+        rating = self.felu(rating) + 1
+        items_pop=self.last_popularity[items]
+        return rating*items_pop
+
+class BPRMF(BasicModel):
+    '''
+    PD/PDA
+    PDG/PDG-A
+    '''
+
+    def __init__( self,config:dict,
+                 dataset:BasicDataset,
+                 fix:bool = False,
+                 init=True):
+        super(BPRMF, self).__init__()
+        self.config=config
+        self.dataset=dataset
+        self.num_users = self.dataset.n_users
+        self.num_items = self.dataset.m_items
+        self.fix=fix
+        self.weights = self.init_weights(init)
+        self._statistics_params()
+
+    def init_weights(self,init):
+            if self.fix == True:
+                self.latent_dim = self.config['teacher_dim']
+                self.n_layers = self.config['teacher_layer']
+            else:
+                self.latent_dim = self.config['latent_dim_rec']
+                self.n_layers = self.config['lightGCN_n_layers']
+            self.keep_prob = self.config['keep_prob']
+            self.A_split = self.config['A_split']
+            weights = dict()
+            if init:
+                self.embedding_user = torch.nn.Embedding(
+                    num_embeddings=self.num_users, embedding_dim=self.latent_dim)
+                self.embedding_item = torch.nn.Embedding(
+                    num_embeddings=self.num_items, embedding_dim=self.latent_dim)
+                if self.config['pretrain'] == 0:
+                    nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
+                    nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
+                    # print('use xavier initilizer')
+                else:
+                    self.embedding_user.weight.data.copy_(torch.from_numpy(self.config['user_emb']))
+                    self.embedding_item.weight.data.copy_(torch.from_numpy(self.config['item_emb']))
+
+                    # print('use pretarined data')
+                weights['user_embedding'] = self.embedding_user.weight
+                weights['item_embedding'] = self.embedding_item.weight
+            self.f = nn.Sigmoid()
+            self.felu=nn.ReLU()
+            return weights
+    
+    def computer(self):
+        users_emb = self.embedding_user.weight
+        items_emb = self.embedding_item.weight
+
+        return users_emb, items_emb
+    def getUsersRating(self, users):
+        all_users, all_items = self.computer()
+        users_emb = all_users[users]
+        items = torch.Tensor(self.dataset.items).long().to(world.DEVICE)
+        items_emb = all_items[items]
+        rating = torch.matmul(users_emb, items_emb.t())
+        # rating=self.felu(rating) + 1
+        return rating
+
+    def getEmbedding(self, users, pos_items, neg_items):
+        all_users, all_items = self.computer()
+        users_emb = all_users[users]
+        pos_emb = all_items[pos_items]
+        neg_emb = all_items[neg_items]
+        users_emb_ego = self.embedding_user(users)
+        pos_emb_ego = self.embedding_item(pos_items)
+        neg_emb_ego = self.embedding_item(neg_items)
+        return users_emb, pos_emb, neg_emb, users_emb_ego, pos_emb_ego, neg_emb_ego
+
+    def create_bpr_loss(self, users, pos_items,neg_items):
+        (users_emb, pos_emb, neg_emb, users_emb_ego, pos_emb_ego, neg_emb_ego) = self.getEmbedding(users.long(), pos_items.long(), neg_items.long())
+        pos_scores = torch.sum(users_emb*pos_emb,dim=1)  # users, pos_items, neg_items have the same shape
+        neg_scores = torch.sum(users_emb*neg_emb,dim=1)
+        # item stop
+        pos_scores = self.felu(pos_scores)
+        neg_scores = self.felu(neg_scores)
+
+        maxi = torch.log(self.f(pos_scores - neg_scores) + 1e-10)
+        #self.condition_ratings = (self.felu(self.batch_ratings) + 1) * pos_pops.squeeze()
+        #self.mf_loss_ori = -(torch.mean(maxi))
+        mf_loss = torch.neg(torch.mean(maxi))
+        # fsoft=nn.Softplus()
+        # mf_loss = -torch.mean(fsoft(pos_scores_with_pop - neg_scores_with_pop))
+        # regular
+        reg_loss = (1 / 2) * (users_emb_ego.norm(2).pow(2) +
+                              pos_emb_ego.norm(2).pow(2) +
+                              neg_emb_ego.norm(2).pow(2)) / float(len(users))
+        return mf_loss, reg_loss
+
+    def _statistics_params(self):
+        # number of params
+        total_parameters = 0
+        for variable in self.weights.values():
+            shape = variable.shape  # shape is an array of tf.Dimension
+            variable_parameters = 1
+            for dim in shape:
+                variable_parameters *= dim
+            total_parameters += variable_parameters
+        print("#params: %d" % total_parameters)
+
+    def bpr_loss(self, users, pos_items,neg_items,pos_pops,neg_pops,weights=None):
+        return  self.create_bpr_loss(users, pos_items,neg_items)
+
+    def forward(self, users, items):
+        """
+        without sigmoid
+        """
+        all_users, all_items = self.computer()
+        users_emb = all_users[users]
+        items_emb = all_items[items]
+        rating = torch.sum(users_emb*items_emb,dim=1)
+        return rating

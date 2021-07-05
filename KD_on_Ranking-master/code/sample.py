@@ -11,7 +11,7 @@ from dataloader import BasicDataset
 from torch.nn import Softmax, Sigmoid
 import torch.nn.functional as F
 import utils
-
+import random
 
 # try:
 #     from cppimport import imp_from_filepath
@@ -147,12 +147,13 @@ class SimpleSample:
         self.dns_k=dns_k
 
     def PerSample(self, batch=None):
-        if batch is not None:
-            return UniformSample_DNS_yield(self.dataset,
-                                           self.dns_k,
-                                           batch_size=batch)
-        else:
-            return UniformSample_DNS(self.dataset, self.dns_k)
+        # if batch is not None:
+        #     return UniformSample_DNS_yield(self.dataset,
+        #                                    self.dns_k,
+        #                                    batch_size=batch)
+        # else:
+        #     return UniformSample_DNS(self.dataset, self.dns_k)
+        return Sample_DNS_python(self.dataset, self.dns_k)
 
     def Sample(self,
                batch_users,
@@ -204,15 +205,16 @@ class RD:
         self._static_weights = self._generateStaticWeights()
 
     def PerSample(self, batch=None):
-        if batch is not None:
-            return UniformSample_DNS_yield(self.dataset,
-                                           self.dns_k +
-                                           self.dynamic_sample_num,
-                                           batch_size=batch)
-        else:
-            return UniformSample_DNS(self.dataset,
-                                     self.dns_k + self.dynamic_sample_num)
-
+        # if batch is not None:
+        #     return UniformSample_DNS_yield(self.dataset,
+        #                                    self.dns_k +
+        #                                    self.dynamic_sample_num,
+        #                                    batch_size=batch)
+        # else:
+        #     return UniformSample_DNS(self.dataset,
+        #                              self.dns_k + self.dynamic_sample_num)
+        #
+        return Sample_DNS_python(self.dataset, self.dns_k + self.dynamic_sample_num)
     def _generateStaticWeights(self):
         w = torch.arange(1, self.topk + 1).float()
         w = torch.exp(-w / self.lamda)
@@ -350,13 +352,16 @@ class CD:
                             f"But got {self.strategy}")
         # with timer(name="CD sample"):
         #     self.get_rank_sample(MODEL=MODEL)
-        if batch is not None:
-            return UniformSample_DNS_yield(self.dataset,
-                                           self.dns_k,
-                                           batch_size=batch)
-        else:
-            return UniformSample_DNS(self.dataset, self.dns_k)
+        # if batch is not None:
+        #     return UniformSample_DNS_yield(self.dataset,
+        #                                    self.dns_k,
+        #                                    batch_size=batch)
+        # else:
+        #     return UniformSample_DNS(self.dataset, self.dns_k)
 
+        #return Sample_DNS_python(self.dataset, self.dns_k )
+
+        return  generator_n_batch_with_pop(dataset)
     def Sample(self, batch_users, batch_pos, batch_neg, epoch):
         return self.sample_diff(batch_users, batch_pos, batch_neg,
                                 self.strategy)
@@ -495,13 +500,14 @@ class RRD:
             self.RRD_sampling()
 
     def PerSample(self, batch=None):
-        if batch is not None:
-            return UniformSample_DNS_yield(self.dataset,
-                                           self.dns_k,
-                                           batch_size=batch)
-        else:
-            return UniformSample_DNS(self.dataset, self.dns_k)
+        # if batch is not None:
+        #     return UniformSample_DNS_yield(self.dataset,
+        #                                    self.dns_k,
+        #                                    batch_size=batch)
+        # else:
+        #     return UniformSample_DNS(self.dataset, self.dns_k)
 
+        return Sample_DNS_python(self.dataset, self.dns_k)
     def get_samples(self, batch_user):
 
         interesting_samples = torch.index_select(self.interesting_items, 0, batch_user)
@@ -712,6 +718,132 @@ class PopularitySample:
         return negitems, None, PD_loss_1
 
 
+class UD:
+    def __init__(self,
+                 dataset: BasicDataset,
+                 student: PairWiseModel,
+                 teacher: PairWiseModel,
+                 dns,
+                 lamda=0.5,
+                 n_distill=10,
+                 t1=1,
+                 t2=0):
+        self.student = student
+        self.teacher = teacher.eval()
+        self.dataset = dataset
+        self.dns_k = dns
+
+        self.strategy = "student guide"
+        self.lamda = lamda
+        self.n_distill = n_distill
+        self.t1, self.t2 = t1, t2
+        ranking_list = np.asarray([1-(i/5000) for i in range(5000)])
+        ranking_list = torch.FloatTensor(ranking_list)
+        self.ranking_mat = torch.stack([ranking_list] * self.dataset.n_users, 0)
+        self.ranking_mat.requires_grad = False
+        #self.popularity = self.dataset.get_last_popularity()
+        # sum_popmularit = np.sum(self.popularity)
+        # self.popularity = self.popularity / sum_popmularit
+        #self.popularity = torch.Tensor(self.popularity).to(world.DEVICE)
+
+        with timer(name="UD sample"):
+            self.get_rank_sample(MODEL=self.teacher)
+    def PerSample(self, batch=None):
+        # with timer(name="CD sample"):
+        #     self.get_rank_sample(MODEL=MODEL)
+            # if batch is not None:
+            #     return UniformSample_DNS_yield(self.dataset,
+            #                                    self.dns_k,
+            #                                    batch_size=batch)
+            # else:
+            #     return UniformSample_DNS(self.dataset, self.dns_k)
+
+            # return Sample_DNS_python(self.dataset, self.dns_k )
+        return generator_n_batch_with_pop(self.dataset)
+    def Sample(self, batch_users, batch_pos, batch_neg, epoch):
+        return self.sample_diff(batch_users, batch_pos, batch_neg,
+                                self.strategy)
+
+    def random_sample(self, batch_size):
+        samples = np.random.choice(self.dataset.m_items,
+                                   (batch_size, self.n_distill))
+        return torch.from_numpy(samples).long().to(world.DEVICE)
+
+    def get_rank_sample(self,MODEL):
+        if MODEL is None:
+            return self.random_sample(self.dataset.n_users)
+        MODEL: LightGCN
+        all_items = self.dataset.m_items
+        self.rank_samples = torch.zeros(self.dataset.n_users, self.n_distill)
+        with torch.no_grad():
+            #items_score = MODEL.getUsersRating(batch_users)
+            batch_size=1024
+            rank_scores = torch.zeros(self.dataset.n_users, 5000)
+            rank_items = torch.zeros(self.dataset.n_users, 5000)
+            for user in range(0, self.dataset.n_users, batch_size):
+                end = min(user + batch_size, self.dataset.n_users)
+                scores = torch.clamp(MODEL.getUsersRating(
+                    torch.arange(user, end).to(world.DEVICE).long()),min=0)
+                pos_item = self.dataset.getUserPosItems(
+                    np.arange(user, end))
+                exclude_user, exclude_item = [], []
+                for i, items in enumerate(pos_item):
+                    exclude_user.extend([i] * len(items))
+                    exclude_item.extend(items)
+                scores[exclude_user, exclude_item] = -1e10
+                rank_scores[user:end],  rank_items[user:end] = torch.topk(scores, 5000)
+                del scores
+
+            for user in range(self.dataset.n_users):
+                ranking_list = self.ranking_mat[user]
+                rating=rank_scores[user]
+                negitems=rank_items[user]
+                sampled_items = set()
+                while True:
+                    with timer(name="compare"):
+                        samples = torch.multinomial(ranking_list, 2, replacement=True)
+                        if rating[samples[0]] > rating[samples[1]]:
+                            sampled_items.add(negitems[samples[0]])
+                        else:
+                            sampled_items.add(negitems[samples[1]])
+                        if len(sampled_items)>=self.n_distill:
+                            break
+                self.rank_samples[user] = torch.Tensor(list(sampled_items))
+        self.rank_samples=self.rank_samples.to(world.DEVICE).long()
+
+    def sample_diff(self, batch_users, batch_pos, batch_neg, strategy):
+        STUDENT = self.student
+        TEACHER = self.teacher
+
+        dns_k = self.dns_k
+        # ----
+        # student_scores = userAndMatrix(batch_users, batch_neg, STUDENT)
+        # _, top1 = student_scores.max(dim=1)
+        # idx = torch.arange(len(batch_users))
+        negitems = batch_neg
+        # ----
+        random_samples=self.rank_samples[batch_users,:]
+        # samples_vector = random_samples.reshape((-1, ))
+        #samples_scores_T = userAndMatrix(batch_users, random_samples, TEACHER)
+        dim_item = random_samples.shape[-1]
+        vector_user = batch_users.repeat((dim_item, 1)).t().reshape((-1,))
+        vector_item = random_samples.reshape((-1,))
+        samples_scores_T=TEACHER.pre_pop(vector_user, vector_item).reshape((-1, dim_item))
+        #samples_scores_T=samples_scores_T*self.popularity[random_samples.long()].float()
+        samples_scores_S = STUDENT.pre_pop(vector_user, vector_item).reshape((-1, dim_item))
+        weights = torch.sigmoid((samples_scores_T + self.t2) / self.t1)
+        inner = torch.sigmoid(samples_scores_S)
+        #inner=samples_scores_S
+        UD_loss = -(weights * torch.log(inner + 1e-10) +
+                    (1 - weights) * torch.log(1 - inner + 1e-10))
+        #print(samples_scores_T.shape)
+        UD_loss = UD_loss.sum(1).mean()
+        #print(UD_loss)
+        return negitems, None, UD_loss
+
+    def student_guide(self, batch_users, batch_pos, batch_neg, epoch):
+        pass
+
 # ==============================================================
 # NON-EXPERIMENTAL PART
 # ==============================================================
@@ -728,6 +860,15 @@ def UniformSample_original(dataset):
     """
     return UniformSample_DNS(dataset, 1)
 
+ # sample
+def Sample_original(dataset):
+    """
+    the original implement of BPR Sampling in LightGCN
+    NOTE: we sample a whole epoch data at one time
+    :return:
+        np.array
+    """
+    return Sample_DNS_python(dataset, 1)
 
 # ----------
 # Dns sampling
@@ -828,6 +969,29 @@ def UniformSample_DNS_python_ByUser(dataset, users, dns_k):
         S[i] = [user, positem, *negitems]
     return S
 
+def Sample_DNS_python(dataset, dns_k):
+    """python implementation for 'UniformSample_DNS'
+    """
+    dataset: BasicDataset
+    user_num = dataset.trainDataSize
+    allPos = dataset.allPos
+    S = []
+    BinForUser = np.zeros(shape=(dataset.m_items, )).astype("int")
+    for user in range(dataset.n_users):
+        posForUser = allPos[user]
+        if len(posForUser) == 0:
+            continue
+        BinForUser[:] = 0
+        BinForUser[posForUser] = 1
+        NEGforUser = np.where(BinForUser == 0)[0]
+        per_user_num=len(posForUser)
+        for i in range(per_user_num):
+            positem = posForUser[i]
+            negindex = np.random.randint(0, len(NEGforUser), size=(dns_k, ))
+            negitems = NEGforUser[negindex]
+            add_pair = [user, positem, *negitems]
+            S.append(add_pair)
+    return S
 
 def DNS_sampling_neg(batch_users, batch_neg, dataset, recmodel):
     """Dynamic Negative Choosing.(return max in Neg)
@@ -851,6 +1015,31 @@ def DNS_sampling_neg(batch_users, batch_neg, dataset, recmodel):
         idx = torch.arange(len(batch_users)).to(world.DEVICE)
         negitems = batch_neg[idx, top1]
     return negitems
+
+def generator_n_batch_with_pop(dataset):
+    '''
+    sample n_batch data with popularity (PD/PDA)
+    '''
+    # print('start')
+    s_time = time()
+    all_users = list(dataset.train_user_list.keys())
+
+    S = []
+    for u in all_users:
+        u_clicked_items = dataset.train_user_list[u]
+        u_clicked_times = dataset.train_user_list_time[u]
+        for idx in range(len(u_clicked_items)):
+            one_pos_item = u_clicked_items[idx]
+            u_pos_time = u_clicked_times[idx]
+            while True:
+                neg_item = random.choice(dataset.items)
+                if neg_item not in u_clicked_items:
+                    break
+            pos_pop=dataset.expo_popularity[one_pos_item, u_pos_time]
+            neg_pop = dataset.expo_popularity[neg_item, u_pos_time]
+            one_user = [u,one_pos_item,neg_item,pos_pop,neg_pop]
+            S.append(one_user)
+    return S
 
 
 if __name__ == "__main__":

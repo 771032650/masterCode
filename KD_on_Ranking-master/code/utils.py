@@ -49,7 +49,29 @@ class BPRLoss:
 
         return loss.cpu().item()
 
+    def stageTwo(self,
+                 users,
+                 pos,
+                 neg,
+                 pos_pop,
+                 neg_pop,
+                 weights=None,
+                 add_loss: torch.Tensor = None):
+        # if world.CD == True:
+        #     return self.cd_loss(users, pos, weights, add_loss)
+        loss, reg_loss = self.model.bpr_loss(users, pos, neg, pos_pop,
+                 neg_pop,weights=weights)
+        reg_loss = reg_loss * self.weight_decay
+        loss = loss + reg_loss
+        if add_loss is not None:
+            assert add_loss.requires_grad == True
+            # print(loss.item(), add_loss.item())
+            loss = loss*world.loss_weight + add_loss*world.kd_weight
+        self.opt.zero_grad()
+        loss.backward()
+        self.opt.step()
 
+        return loss.cpu().item()
 
 def getTestweight(users: Tensor, items: Tensor, dataset: BasicDataset):
     """
@@ -145,6 +167,12 @@ def getFileName(model_name, dataset, rec_dim, layers=None, dns_k=None):
             file = f"lgn-{dataset}-{layers}-{rec_dim}-{dns_k}"
         else:
             file = f"lgn-{dataset}-{layers}-{rec_dim}"
+    else:
+        assert layers is not None
+        if dns_k is not None:
+            file = f"{model_name}-{dataset}-{layers}-{rec_dim}-{dns_k}"
+        else:
+            file = f"{model_name}-{dataset}-{layers}-{rec_dim}"
     file = file + f".pth.tar"
     return file
 
@@ -353,7 +381,8 @@ def map_item_N(pop_item, spilt):
         list[ndarray...]: short-head, long-tail, distant-tail
     """
     from math import floor, ceil
-    assert sum(spilt) == 1.
+
+    #assert sum(spilt) == 1.
     index = np.argsort(pop_item)[::-1]
     num_item = len(index)
     # return (set(index[:floor(num_item * 0.2)]),
@@ -764,8 +793,8 @@ def PrecisionByGrpup(test_data,pre_data,dataset: Loader,r):
     for mapping in mappings:
         apt = 0.
         for i in range(len(test_data)):
-            #groundnum =  np.nonzero(r[i])[0]
-            groundnum = range(0,10)
+            groundnum =  np.nonzero(r[i])[0]
+            #groundnum = range(0,10)
             if len(groundnum)>0:
                 groundTrue=pre_data[i][groundnum].astype(np.int64)
                 count = list(map(lambda x: x in mapping, groundTrue))

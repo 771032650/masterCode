@@ -6,7 +6,7 @@ import utils
 import Procedure
 import sample
 from pprint import pprint
-
+import load_data
 # data_path = os.path.join(
 #                     world.DATA_PATH,
 #                     world.dataset)
@@ -15,8 +15,8 @@ if world.ONE:
     # data_path = data_path + "_one"
     print("{leave-one-out}:", data_path)
 
-if world.ONE:
-    dataset = dataloader.LoaderOne(path=data_path)
+if world.dataset=='kwai':
+    dataset = load_data.Data2(world.config,path=data_path)
 else:
     dataset = dataloader.Loader(path=data_path)
 
@@ -49,9 +49,13 @@ else:
 
 MODELS = {
     'lgn': model.LightGCN,
+    'ulgn': model.UnbaisLGN,
     'leb': model.MyModel,
     'lep': model.LightExpert,
-    'newModel':model.newModel
+    'newModel':model.newModel,
+    'myModel':model.MyModel,
+    'ConditionalBPRMF':model.ConditionalBPRMF,
+    'BPRMF':model.BPRMF
 }
 
 SAMPLER = {
@@ -61,15 +65,18 @@ SAMPLER = {
     'DE_RRD'     : sample.RRD,
     'TD':sample.PopularitySample,
     'SD':sample.SimpleSample,
+    'UD':sample.UD,
 }
 
 TRAIN = {
     'original': Procedure.BPR_train_original,
-    'dns': Procedure.BPR_train_DNS_neg
+    'dns': Procedure.BPR_train_DNS_neg,
     # 'dns': Procedure.BPR_train_DNS_batch
+    'dns_pop':Procedure.BPR_train_DNS_neg_pop
 }
 
 DISTILL_TRAIN = {
     'batch': Procedure.Distill_DNS_yield,
-    'epoch': Procedure.Distill_DNS
+    'epoch': Procedure.Distill_DNS,
+    'pop':Procedure.Distill_DNS_pop
 }

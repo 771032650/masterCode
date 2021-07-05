@@ -36,11 +36,13 @@ from register import dataset
 
 # ----------------------------------------------------------------------------
 # loading teacher
-teacher_file = utils.getFileName(world.model_name,
+teacher_file = utils.getFileName(world.teacher_model_name,
                          world.dataset,
                          world.config['teacher_dim'],
-                         layers=world.config['teacher_layer'])
-#teacher_file = "teacher-" + teacher_file
+                         layers=world.config['teacher_layer'],
+                         dns_k=world.DNS_K)
+teacher_file = str(world.de_weight)+'-'+teacher_file
+teacher_file = str(world.lambda_pop)+'-'+teacher_file
 teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
 print('-------------------------')
 world.cprint("loaded teacher weights from")
@@ -82,7 +84,7 @@ file = utils.getFileName(world.model_name,
                          world.config['latent_dim_rec'], 
                          layers=world.config['lightGCN_n_layers'],
                          dns_k=world.DNS_K)
-file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-' + file
+file = world.teacher_model_name+'-'+world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-' + file
 weight_file = os.path.join(world.FILE_PATH, file)
 print('-------------------------')
 print(f"load and save student to {weight_file}")

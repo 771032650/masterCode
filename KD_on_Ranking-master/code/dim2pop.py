@@ -1,12 +1,14 @@
 import matplotlib.pyplot as plt
-
-
+import plot_data as pla
+import plot_mymodel as pla_m
 def array(x):
     return x
 
 
-dims = ['teacher','student','rd','cd','de_rrd']
-
+#dims = ['c_teacher','u_tracher','student','cd','ud']
+#dims = ['my-400','old-400','my-128','old-128']
+dims = ['de_rrd','ud']
+#dims = ['5','10']
 # yelp_lgn = []
 amaz_mf = [{
     'precision': array([0.00318941, 0.00269134, 0.00239044]),
@@ -684,6 +686,24 @@ comparsion_cd_new_bais=[
 
 ]
 
+comparsion_20210615_gowa=[
+[0.0498727309263811, 0.012036975015071614, 0.00524817469354935, 0.0013631187621408081, 0.0005157746667559771],
+[0.05049567954986501, 0.014167057405051149, 0.0058945676200681685, 0.0016411012124053974, 0.000579409203563533],
+[0.6670473574921243, 0.21306517516244156, 0.08766494741777202, 0.025005023779222674, 0.006812244624556122],
+[0.6381539285953447, 0.23200817201420867, 0.09510683903810564, 0.027118360238463316, 0.007160559983923777]
+]
+comparsion_20210615_amaz=[
+[0.017342427687256586, 0.006691297208538369, 0.003239863584691131, 0.0008999621068586627, 0.00010736390046734879],
+[0.01876973601111691, 0.007831249210559272, 0.00415245673866355, 0.0012915245673866449, 0.00016420361247947447],
+[0.5912498421119051, 0.24819060250095207, 0.11901919919160234, 0.03575533661740663, 0.0049987368952885605],
+[0.5777219906530182, 0.25381457622837417, 0.12594732853352344, 0.037170013894152594, 0.004742958191233996]
+]
+comparsion_20210615_yelp=[
+[0.009999430123663812, 0.003675702372585039, 0.0017248257128203068, 0.0008757099709363118, 0.00033052827536424564],
+[0.01072697224702321, 0.00388085785384559, 0.001878692323765724, 0.000987785650513845, 0.0003609216799954409],
+[0.6304427939137502, 0.2354615048534733, 0.09366677430997214, 0.032933153505688206, 0.007436886195695573],
+[0.6357939327166304, 0.22954428888933914, 0.09303041240050532, 0.03318769826947453, 0.008352487510210348]
+]
 def plot_metrics(data, key='precision', topk=1, title='Gowa MF'):
     d = [bag[key][topk] for bag in data]
     x = dims
@@ -778,22 +798,60 @@ def plot_com(data, key='APT', title="Gowa lgn",co='red'):
     #loc="lower left"
     plt.show()
 
+
+def plot_new_com(data, key='APT', title="Gowa lgn",co='red'):
+    labels = dims
+    width = 0.35
+    fig, ax = plt.subplots()
+    if key=='precision':
+        d_1 = [round(bag,5) for bag in data[0]]
+        d_2 = [round(bag,5) for bag in data[1]]
+    else:
+        d_1 = [round(bag,5) for bag in data[2]]
+        d_2 = [round(bag,5) for bag in data[3]]
+
+    bar1 = plt.bar([i - 0.2 for i in range(5)], height=d_1, width=0.35, color='r', label='old')  # 第一个图
+    bar2 = plt.bar([i + 0.2 for i in range(5)], height=d_2, width=0.35, color='g', label='new')
+    plt.ylabel(f"{key}")
+    plt.title(title)
+    plt.xlabel("data")
+    for rect in bar1:
+        height = rect.get_height()  # 获得bar1的高度
+        plt.text(rect.get_x() + rect.get_width() / 2, height, str(height), ha="center", va="bottom")
+    for rect in bar2:
+        height = rect.get_height()
+        plt.text(rect.get_x() + rect.get_width() / 2, height, str(height), ha="center", va="bottom")
+
+    # ax.text(.5,.93, '1-teacher   2-student   3-distillation   4-PCA', transform=ax.transAxes,
+    #         ha='center', va='center', fontsize=10, color='black', fontweight='bold')
+    plt.xticks(range(5))
+    plt.legend()
+    #loc="lower left"
+    plt.show()
 if __name__ == "__main__":
     # data = comparsion_yelp_pre
     # bias = comparsion_yelp_bais
     title = 'lgn'
-    data = comparsion_cd_new_pre
-    bias = comparsion_cd_new_bais
+    data1 =pla.comparsion_20210627_gowa_100_precision
+    data2 = pla.comparsion_20210627_yelp_100_precision
+    data3 = pla.comparsion_20210627_amaz_64_precision
+    bias1=pla.comparsion_20210627_gowa_100_APT
+    bias2 = pla.comparsion_20210627_yelp_100_APT
+    bias3 =pla.comparsion_20210627_amaz_64_APT
     #plot_metrics(data, key='precision',title='gowa pca')
-    # plot_new(data, key='precision', title='precision', co=['green','red','black','orange','yellow','blue'])
-    # plot_new(bias, key='Short Head',title='Short Head',co=['green','red','black','orange','yellow','blue'])
-    # plot_new(bias, key='Medium Tail', title='Medium Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
-    # plot_new(bias, key='Short Tail', title='Short Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    plot_new(data3, key='precision', title='amaz_precision', co=['green','red','black','orange','yellow','blue'])
+    plot_new(bias3, key='Short Head',title='amaz Short Head',co=['green','red','black','orange','yellow','blue'])
+    plot_new(bias3, key='Medium Tail', title='amaz Medium Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    plot_new(bias3, key='Short Tail', title='amaz Short Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
 
-    plot_com(data, key='precision', title='precision', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
-    plot_com(bias, key='Short Head',title='Short Head',co=['green','red','black','orange','yellow','blue'])
-    plot_com(bias, key='Medium Tail', title='Medium Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
-    plot_com(bias, key='Short Tail', title='Short Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    # plot_com(data, key='precision', title='precision', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    # plot_com(bias, key='Short Head',title='Short Head',co=['green','red','black','orange','yellow','blue'])
+    # plot_com(bias, key='Medium Tail', title='Medium Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    # plot_com(bias, key='Short Tail', title='Short Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    # plot_com(data, key='precision', title='precision', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    # plot_new_com(data1, key='account', title='gowa account ratio', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    # plot_new_com(data2, key='account', title='amaz account ratio', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    # plot_new_com(data3, key='account', title='yelp account ratio', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
     #plot_bias(bias,key='APT', title=title)
     #plot_bias(bias, key='APT5', title=title)
     # plot_bias(bias, key='I_KL', title=title)

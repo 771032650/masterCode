@@ -70,8 +70,8 @@ file = utils.getFileName(world.model_name,
                          world.config['latent_dim_rec'],
                          layers=world.config['lightGCN_n_layers'],
                          dns_k=world.DNS_K)
-
-weight_file = os.path.join(world.FILE_PATH, file)+"-"+str(world.config['lr'])
+file=str(world.lambda_pop)+'-'+str(world.de_weight)+'-'+file
+weight_file = os.path.join(world.FILE_PATH, file)
 print(f"load and save to {weight_file}")
 if world.LOAD:
     utils.load(Recmodel, weight_file)
