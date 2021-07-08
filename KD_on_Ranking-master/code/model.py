@@ -668,10 +668,11 @@ class ConditionalBPRMF(BasicModel):
     def getUsersRating(self, users):
         all_users, all_items = self.computer()
         users_emb = all_users[users]
-        items = torch.Tensor(self.dataset.items).long().to(world.DEVICE)
+        items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE)
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
-        #rating=self.felu(rating) + 1
+        rating=self.felu(rating) + 1
+        rating = rating * self.last_popularity
         return rating
 
     def getEmbedding(self, users, pos_items, neg_items):
@@ -719,7 +720,7 @@ class ConditionalBPRMF(BasicModel):
             total_parameters += variable_parameters
         print("#params: %d" % total_parameters)
 
-    def bpr_loss(self, users, pos_items,neg_items,pos_pops,neg_pops,weights=None):
+    def bpr_loss_pop(self, users, pos_items,neg_items,pos_pops,neg_pops,weights=None):
         return  self.create_bpr_loss_with_pop_global(users, pos_items,neg_items,pos_pops,neg_pops)
 
     def forward(self, users, items):
@@ -730,6 +731,8 @@ class ConditionalBPRMF(BasicModel):
         users_emb = all_users[users]
         items_emb = all_items[items]
         rating = torch.sum(users_emb*items_emb,dim=1)
+        rating = self.felu(rating) + 1
+        rating = rating * self.last_popularity
         return rating
 
     def pre_pop(self, users, items):
@@ -801,10 +804,10 @@ class BPRMF(BasicModel):
     def getUsersRating(self, users):
         all_users, all_items = self.computer()
         users_emb = all_users[users]
-        items = torch.Tensor(self.dataset.items).long().to(world.DEVICE)
+        items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE)
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
-        # rating=self.felu(rating) + 1
+        #rating=self.felu(rating) + 1
         return rating
 
     def getEmbedding(self, users, pos_items, neg_items):
@@ -848,7 +851,10 @@ class BPRMF(BasicModel):
             total_parameters += variable_parameters
         print("#params: %d" % total_parameters)
 
-    def bpr_loss(self, users, pos_items,neg_items,pos_pops,neg_pops,weights=None):
+    def bpr_loss_pop(self, users, pos_items,neg_items,pos_pops,neg_pops,weights=None):
+        return  self.create_bpr_loss(users, pos_items,neg_items)
+
+    def bpr_loss(self, users, pos_items,neg_items,weights=None):
         return  self.create_bpr_loss(users, pos_items,neg_items)
 
     def forward(self, users, items):
@@ -859,4 +865,5 @@ class BPRMF(BasicModel):
         users_emb = all_users[users]
         items_emb = all_items[items]
         rating = torch.sum(users_emb*items_emb,dim=1)
+        #rating = self.felu(rating) + 1
         return rating

@@ -483,7 +483,7 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
         return results
 
 
-def Popularity_Bias(dataset, Recmodel, valid=True,max_k=10):
+def Popularity_Bias(dataset, Recmodel, valid=True,max_k=50):
 
     u_batch_size = world.config['test_u_batch_size']
     dataset: utils.BasicDataset
@@ -539,7 +539,7 @@ def Popularity_Bias(dataset, Recmodel, valid=True,max_k=10):
             else:
                 k=utils.getLabel(groundTrue, sorted_items)
                 r=np.append(r,k,axis=0)
-    return Popularity.astype('int'), user_topk.astype("int"),r
+    return Popularity.astype('int'), user_topk[users].astype("int"),r
 
 from sklearn.decomposition import PCA
 def embedPCA(Recmodel,n):

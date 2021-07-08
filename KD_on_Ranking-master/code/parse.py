@@ -8,7 +8,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Go lightGCN")
     parser.add_argument('--bpr_batch', type=int,default=1024,
                         help="the batch size for bpr loss training procedure")
-    parser.add_argument('--recdim', type=int,default=256,
+    parser.add_argument('--recdim', type=int,default=300,
                         help="the embedding size of lightGCN")
     parser.add_argument('--layer', type=int,default=2,
                         help="the layer num of lightGCN")
@@ -22,13 +22,13 @@ def parse_args():
                         help="the batch size for bpr loss training procedure")
     parser.add_argument('--a_fold', type=int,default=100,
                         help="the fold num used to split large adj matrix, like gowalla")
-    parser.add_argument('--testbatch', type=int,default=1000,
+    parser.add_argument('--testbatch', type=int,default=1024,
                         help="the batch size of users for testing")
     parser.add_argument('--dataset', type=str,default='kwai',
                         help="available datasets: [gowa yelp amaz]")
     parser.add_argument('--path', type=str,default="./checkpoints",
                         help="path to save weights")
-    parser.add_argument('--topks', nargs='?',default="[10,25,50]",
+    parser.add_argument('--topks', nargs='?',default="[20,50]",
                         help="@k test list")
     parser.add_argument('--tensorboard', type=int,default=1,
                         help="enable tensorboard")
@@ -56,9 +56,9 @@ def parse_args():
     parser.add_argument('--sampler', type=str, default='UD')
     parser.add_argument('--num_expert', type=int, default=5)
     parser.add_argument('--de_loss', type=int, default=0)
-    parser.add_argument('--de_weight', type=float, default=1.0)
+    parser.add_argument('--de_weight', type=float, default=2.0)
     parser.add_argument('--kd_weight', type=float, default=0.5)
     parser.add_argument('--margin', type=int, default=100)
-    parser.add_argument('--lambda_pop', type=float, default=0.01)
+    parser.add_argument('--lambda_pop', type=float, default=0.16)
     parser.add_argument('--dataset_split', type=int, default=0)
     return parser.parse_args()

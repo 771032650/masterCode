@@ -15,8 +15,9 @@ if world.ONE:
     # data_path = data_path + "_one"
     print("{leave-one-out}:", data_path)
 
-if world.dataset=='kwai':
+if  world.dataset in ['kwai','yelp2','douban'] :
     dataset = load_data.Data2(world.config,path=data_path)
+    #dataset = dataloader.Loader(path=data_path)
 else:
     dataset = dataloader.Loader(path=data_path)
 

@@ -727,6 +727,13 @@ class Data2(Dataset):
         self.__testDict =  self.test_user_list
         self.__validDict =self.valid_user_list
 
+
+        all_items = list(self.train_item_list.keys())
+        self.c_popularity = np.zeros((len(all_items),))
+        for i in all_items:
+            i_clicked_users = self.train_item_list[i]
+            self.c_popularity[i] = len(i_clicked_users)
+
     def add_expo_popularity(self,popularity):
         self.expo_popularity = popularity
 
@@ -735,6 +742,10 @@ class Data2(Dataset):
 
     def get_last_popularity(self):
         return self.last_popularity
+
+    def popularity(self):
+
+        return self.c_popularity
 
     @property
     def allPos(self):

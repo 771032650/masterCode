@@ -59,7 +59,7 @@ class BPRLoss:
                  add_loss: torch.Tensor = None):
         # if world.CD == True:
         #     return self.cd_loss(users, pos, weights, add_loss)
-        loss, reg_loss = self.model.bpr_loss(users, pos, neg, pos_pop,
+        loss, reg_loss = self.model.bpr_loss_pop(users, pos, neg, pos_pop,
                  neg_pop,weights=weights)
         reg_loss = reg_loss * self.weight_decay
         loss = loss + reg_loss

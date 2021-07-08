@@ -149,11 +149,11 @@ model = model.to(world.DEVICE)
 cprint("[TEST Teacher]")
 results = Procedure.Test(dataset, model, 0, None, world.config['multicore'], valid=False)
 pprint(results)
-# popularity,user_topk,r= Procedure.Popularity_Bias(dataset, model,valid=False)
-# metrics=utils.popularity_ratio(popularity,user_topk,dataset)
-# print(metrics)
-#
-# testDict = dataset.testDict
-# metrics=utils.PrecisionByGrpup(testDict,user_topk,dataset,r)
-# print(metrics)
+popularity,user_topk,r= Procedure.Popularity_Bias(dataset, model,valid=False)
+metrics=utils.popularity_ratio(popularity,user_topk,dataset)
+print(metrics)
+
+testDict = dataset.testDict
+metrics=utils.PrecisionByGrpup(testDict,user_topk,dataset,r)
+print(metrics)
 
