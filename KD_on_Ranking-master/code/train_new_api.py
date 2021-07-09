@@ -256,6 +256,8 @@ if __name__ == '__main__':
     # ----------------------------------------------------------------------------
     earlystop = utils.EarlyStop(patience=20, model=Recmodel, filename=weight_file)
     Recmodel = Recmodel.to(world.DEVICE)
+    if world.model_name == 'ConditionalBPRMF':
+        Recmodel.set_popularity(linear_predict_popularity)
     # ----------------------------------------------------------------------------
     # init tensorboard
     if world.tensorboard:

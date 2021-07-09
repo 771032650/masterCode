@@ -90,6 +90,7 @@ DEVICE = torch.device('cuda' if GPU else "cpu")
 CORES = multiprocessing.cpu_count() // 2
 SEED = args.seed
 lambda_pop= args.lambda_pop
+t_lambda_pop= args.t_lambda_pop
 dataset = args.dataset
 model_name = args.model
 dataset_split=args.dataset_split

@@ -73,7 +73,8 @@ def get_popularity_from_load(item_pop_all):
     # print("   each stage min:",popularity_matrix.min(axis=0))
     return popularity_matrix
 
-popularity_exp = world.lambda_pop
+#popularity_exp = world.lambda_pop
+popularity_exp=0
 print("----- popularity_exp : ",popularity_exp)
 pop_item_all = load_popularity()
 # popularity for test...
@@ -102,7 +103,7 @@ file = utils.getFileName(world.model_name,
                          )
 #file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-' + file
 file=str(world.lambda_pop)+'-'+str(world.config['de_weight'])+'-'+file
-#file=world.teacher_model_name+'-'+file
+#file=world.teacher_model_name+'-'+str(world.t_lambda_pop)+'-'+file
 #file=str(world.lambda_pop)+'-'+file
 weight_file = os.path.join(world.FILE_PATH, file)
 print('-------------------------')
@@ -133,6 +134,8 @@ else:
 model.eval()
 utils.load(model, weight_file)
 model = model.to(world.DEVICE)
+if world.model_name=='ConditionalBPRMF':
+    model.set_popularity(linear_predict_popularity)
 #all_users, all_items = model.computer()
 # popularity=dataset.popularity()
 # # index=np.argsort(-popularity)

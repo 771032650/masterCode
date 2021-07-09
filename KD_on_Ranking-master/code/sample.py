@@ -828,9 +828,9 @@ class UD:
         dim_item = random_samples.shape[-1]
         vector_user = batch_users.repeat((dim_item, 1)).t().reshape((-1,))
         vector_item = random_samples.reshape((-1,))
-        samples_scores_T=TEACHER.pre_pop(vector_user, vector_item).reshape((-1, dim_item))
+        samples_scores_T=userAndMatrix(batch_users, random_samples, TEACHER)
         #samples_scores_T=samples_scores_T*self.popularity[random_samples.long()].float()
-        samples_scores_S = STUDENT.pre_pop(vector_user, vector_item).reshape((-1, dim_item))
+        samples_scores_S = userAndMatrix(batch_users, random_samples, STUDENT)
         weights = torch.sigmoid((samples_scores_T + self.t2) / self.t1)
         inner = torch.sigmoid(samples_scores_S)
         #inner=samples_scores_S

@@ -626,16 +626,11 @@ class ConditionalBPRMF(BasicModel):
         self.fix=fix
         self.weights = self.init_weights(init)
         self._statistics_params()
-        self.last_popularity=self.dataset.get_last_popularity()
-        self.last_popularity=torch.Tensor(self.last_popularity).to(world.DEVICE)
 
     def init_weights(self,init):
-            if self.fix == True:
-                self.latent_dim = self.config['teacher_dim']
-                self.n_layers = self.config['teacher_layer']
-            else:
-                self.latent_dim = self.config['latent_dim_rec']
-                self.n_layers = self.config['lightGCN_n_layers']
+
+            self.latent_dim = self.config['latent_dim_rec']
+            self.n_layers = self.config['lightGCN_n_layers']
             self.keep_prob = self.config['keep_prob']
             self.A_split = self.config['A_split']
             weights = dict()
@@ -659,6 +654,10 @@ class ConditionalBPRMF(BasicModel):
             self.felu=nn.ELU()
             return weights
 
+    def set_popularity(self,last_popularity):
+        self.last_popularity = last_popularity
+        self.last_popularity = torch.Tensor(self.last_popularity).to(world.DEVICE)
+
     def computer(self):
         users_emb = self.embedding_user.weight
         items_emb = self.embedding_item.weight
@@ -672,7 +671,7 @@ class ConditionalBPRMF(BasicModel):
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
         rating=self.felu(rating) + 1
-        rating = rating * self.last_popularity
+        rating = rating * self.last_popularity[items]
         return rating
 
     def getEmbedding(self, users, pos_items, neg_items):
@@ -730,10 +729,10 @@ class ConditionalBPRMF(BasicModel):
         all_users, all_items = self.computer()
         users_emb = all_users[users]
         items_emb = all_items[items]
-        rating = torch.sum(users_emb*items_emb,dim=1)
+        rating = torch.sum(users_emb * items_emb, dim=1)
         rating = self.felu(rating) + 1
-        rating = rating * self.last_popularity
-        return rating
+        items_pop = self.last_popularity[items]
+        return rating * items_pop
 
     def pre_pop(self, users, items):
         """
@@ -767,12 +766,9 @@ class BPRMF(BasicModel):
         self._statistics_params()
 
     def init_weights(self,init):
-            if self.fix == True:
-                self.latent_dim = self.config['teacher_dim']
-                self.n_layers = self.config['teacher_layer']
-            else:
-                self.latent_dim = self.config['latent_dim_rec']
-                self.n_layers = self.config['lightGCN_n_layers']
+
+            self.latent_dim = self.config['latent_dim_rec']
+            self.n_layers = self.config['lightGCN_n_layers']
             self.keep_prob = self.config['keep_prob']
             self.A_split = self.config['A_split']
             weights = dict()

@@ -128,6 +128,7 @@ if __name__ == '__main__':
     pop_item_all = load_popularity()
     # popularity for test...
     last_stage_popualarity = pop_item_all[:,-2]
+    t_last_stage_popualarity=np.power(last_stage_popualarity,0)
     last_stage_popualarity = np.power(last_stage_popualarity,popularity_exp)   # laste stage popularity (method (a) )
     linear_predict_popularity = pop_item_all[:,-2] + 0.5 * (pop_item_all[:,-2] - pop_item_all[:,-3]) # linear predicted popularity (method (b))
     linear_predict_popularity[np.where(linear_predict_popularity<=0)] = 1e-9
@@ -151,7 +152,7 @@ if __name__ == '__main__':
                                      layers=world.config['teacher_layer'],
                                      dns_k=world.DNS_K)
     teacher_file = str(world.de_weight) + '-' + teacher_file
-    teacher_file = str(world.lambda_pop) + '-' + teacher_file
+    teacher_file = str(world.t_lambda_pop) + '-' + teacher_file
     teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
     print('-------------------------')
     world.cprint("loaded teacher weights from")
@@ -159,7 +160,7 @@ if __name__ == '__main__':
     print('-------------------------')
     teacher_config = utils.getTeacherConfig(world.config)
     world.cprint('teacher')
-    teacher_model = register.MODELS[world.model_name](world.config,
+    teacher_model = register.MODELS[world.teacher_model_name](teacher_config,
                                                       dataset,
                                                       fix=True)
     teacher_model.eval()
@@ -180,20 +181,25 @@ if __name__ == '__main__':
     # to device
     student_model = student_model.to(world.DEVICE)
     teacher_model = teacher_model.to(world.DEVICE)
+    if world.model_name=='ConditionalBPRMF':
+        student_model.set_popularity(last_stage_popualarity)
+    if world.teacher_model_name == 'ConditionalBPRMF':
+        teacher_model.set_popularity(t_last_stage_popualarity)
     # ----------------------------------------------------------------------------
     # choosing paradigms
     procedure = register.DISTILL_TRAIN['pop']
     sampler = register.SAMPLER[world.SAMPLE_METHOD](dataset, student_model, teacher_model, world.DNS_K)
 
     bpr = utils.BPRLoss(student_model, world.config)
-    # ----------------------------------------------------------------------------
+    # ------------------
+    # ----------------------------------------------------------
     # get names
     file = utils.getFileName(world.model_name,
                              world.dataset,
                              world.config['latent_dim_rec'],
                              layers=world.config['lightGCN_n_layers'],
                              dns_k=world.DNS_K)
-    file = world.teacher_model_name + '-' + world.SAMPLE_METHOD + '-' + str(world.config['teacher_dim']) + '-' + str(
+    file = world.teacher_model_name + '-' +str(world.t_lambda_pop) + '-'+ world.SAMPLE_METHOD + '-' + str(world.config['teacher_dim']) + '-' + str(
         world.kd_weight) + '-' + str(world.config['de_weight']) + '-' + str(world.lambda_pop) + '-' + file
     weight_file = os.path.join(world.FILE_PATH, file)
     print('-------------------------')
