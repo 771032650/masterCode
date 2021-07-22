@@ -214,7 +214,13 @@ class RD:
         #     return UniformSample_DNS(self.dataset,
         #                              self.dns_k + self.dynamic_sample_num)
         #
-        return Sample_DNS_python(self.dataset, self.dns_k + self.dynamic_sample_num)
+        self.dynamic_samples=Sample_DNS_python_2(self.dataset,self.dynamic_sample_num)
+        self.dynamic_samples=torch.Tensor(self.dynamic_samples).long().to(world.DEVICE)
+        self.dynamic_samples=self.dynamic_samples[:,2:]
+        if world.distill_method == 'epoch':
+            return Sample_DNS_python(self.dataset, self.dns_k)
+        else:
+            return generator_n_batch_with_pop(self.dataset)
     def _generateStaticWeights(self):
         w = torch.arange(1, self.topk + 1).float()
         w = torch.exp(-w / self.lamda)
@@ -282,14 +288,12 @@ class RD:
                dynamic_samples=None):
         STUDENT = self.student
         TEACHER = self.teacher
-        assert batch_neg.shape[-1] == (self.dns_k + self.dynamic_sample_num)
-        dynamic_samples = batch_neg[:, -self.dynamic_sample_num:]
-        batch_neg = batch_neg[:, :self.dns_k]
+        #assert batch_neg.shape[-1] == (self.dns_k)
+        dynamic_samples = self.dynamic_samples[batch_users]
+        #batch_neg = batch_neg[:, :self.dns_k]
         # ----
         student_scores = userAndMatrix(batch_users, batch_neg, STUDENT)
-        dynamic_scores = userAndMatrix(batch_users, dynamic_samples,
-                                        STUDENT).detach()
-
+        dynamic_scores = userAndMatrix(batch_users, dynamic_samples,STUDENT).detach()
         _, top1 = student_scores.max(dim=1)
         idx = torch.arange(len(batch_users))
         negitems = batch_neg[idx, top1]
@@ -318,8 +322,8 @@ class CD:
                  dns,
                  lamda=0.5,
                  n_distill=10,
-                 t1=1,
-                 t2=2):
+                 t1=2,
+                 t2=0):
         self.student = student
         self.teacher = teacher.eval()
         self.dataset = dataset
@@ -358,10 +362,10 @@ class CD:
         #                                    batch_size=batch)
         # else:
         #     return UniformSample_DNS(self.dataset, self.dns_k)
-
-        #return Sample_DNS_python(self.dataset, self.dns_k )
-
-        return  generator_n_batch_with_pop(dataset)
+        if world.distill_method=='epoch':
+            return Sample_DNS_python(self.dataset, self.dns_k )
+        else:
+            return  generator_n_batch_with_pop(self.dataset)
     def Sample(self, batch_users, batch_pos, batch_neg, epoch):
         return self.sample_diff(batch_users, batch_pos, batch_neg,
                                 self.strategy)
@@ -384,8 +388,8 @@ class CD:
             rank_items = torch.zeros(self.dataset.n_users, 5000)
             for user in range(0, self.dataset.n_users, batch_size):
                 end = min(user + batch_size, self.dataset.n_users)
-                scores = torch.clamp(MODEL.getUsersRating(
-                    torch.arange(user, end)),min=0)
+                scores = MODEL.getUsersRating(
+                    torch.arange(user, end))
                 pos_item = self.dataset.getUserPosItems(
                     np.arange(user, end))
                 exclude_user, exclude_item = [], []
@@ -411,7 +415,8 @@ class CD:
                         if len(sampled_items)>=self.n_distill:
                             break
                 self.rank_samples[user] = torch.Tensor(list(sampled_items))
-        self.rank_samples.to(world.DEVICE).long()
+        self.rank_samples=self.rank_samples.to(world.DEVICE).long()
+
         # with torch.no_grad():
         #     # interesting items
         #     self.rank_samples = torch.zeros(self.dataset.n_users, self.n_distill)
@@ -750,7 +755,7 @@ class UD:
             self.get_rank_sample(MODEL=self.teacher)
     def PerSample(self, batch=None):
         # with timer(name="CD sample"):
-        #     self.get_rank_sample(MODEL=MODEL)
+        #     self.get_rank_sample(MODEL=self.teacher)
             # if batch is not None:
             #     return UniformSample_DNS_yield(self.dataset,
             #                                    self.dns_k,
@@ -989,6 +994,32 @@ def Sample_DNS_python(dataset, dns_k):
             positem = posForUser[i]
             negindex = np.random.randint(0, len(NEGforUser), size=(dns_k, ))
             negitems = NEGforUser[negindex]
+            pos_pop = dataset.expo_popularity[positem]
+            neg_pop = dataset.expo_popularity[negitems]
+            add_pair = [user, positem, negitems,pos_pop,neg_pop]
+            S.append(add_pair)
+    return S
+
+def Sample_DNS_python_2(dataset, dns_k):
+    """python implementation for 'UniformSample_DNS'
+    """
+    dataset: BasicDataset
+    user_num = dataset.trainDataSize
+    allPos = dataset.allPos
+    S = []
+    BinForUser = np.zeros(shape=(dataset.m_items, )).astype("int")
+    for user in range(dataset.n_users):
+        posForUser = allPos[user]
+        if len(posForUser) == 0:
+            continue
+        BinForUser[:] = 0
+        BinForUser[posForUser] = 1
+        NEGforUser = np.where(BinForUser == 0)[0]
+        per_user_num=len(posForUser)
+        for i in range(per_user_num):
+            positem = posForUser[i]
+            negindex = np.random.randint(0, len(NEGforUser), size=(dns_k, ))
+            negitems = NEGforUser[negindex]
             add_pair = [user, positem, *negitems]
             S.append(add_pair)
     return S
@@ -1035,8 +1066,8 @@ def generator_n_batch_with_pop(dataset):
                 neg_item = random.choice(dataset.items)
                 if neg_item not in u_clicked_items:
                     break
-            pos_pop=dataset.expo_popularity[one_pos_item, u_pos_time]
-            neg_pop = dataset.expo_popularity[neg_item, u_pos_time]
+            pos_pop=dataset.expo_popularity[one_pos_item]
+            neg_pop = dataset.expo_popularity[neg_item]
             one_user = [u,one_pos_item,neg_item,pos_pop,neg_pop]
             S.append(one_user)
     return S

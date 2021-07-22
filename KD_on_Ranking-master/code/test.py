@@ -9,7 +9,6 @@ from world import cprint
 from pprint import pprint
 from tensorboardX import SummaryWriter
 from sample import DistillSample
-from dim2pop import plot_bias
 import tracemalloc
 
 tracemalloc.start()
@@ -48,9 +47,7 @@ def load_popularity():
     return pop_item_all
 
 def get_dataset_tot_popularity():
-    popularity_matrix = np.zeros(dataset.n_items).astype(np.float)
-    for a_item,clicked_users in dataset.train_item_list.items():
-        popularity_matrix[a_item] = len(clicked_users)
+    popularity_matrix=dataset.itemCount()
     popularity_matrix = popularity_matrix.astype(np.float)
     popularity_matrix += 1.0
     popularity_matrix /= popularity_matrix.sum()
@@ -73,19 +70,19 @@ def get_popularity_from_load(item_pop_all):
     # print("   each stage min:",popularity_matrix.min(axis=0))
     return popularity_matrix
 
-#popularity_exp = world.lambda_pop
-popularity_exp=0
-print("----- popularity_exp : ",popularity_exp)
-pop_item_all = load_popularity()
-# popularity for test...
-last_stage_popualarity = pop_item_all[:,-2]
-last_stage_popualarity = np.power(last_stage_popualarity,popularity_exp)   # laste stage popularity (method (a) )
-linear_predict_popularity = pop_item_all[:,-2] + 0.5 * (pop_item_all[:,-2] - pop_item_all[:,-3]) # linear predicted popularity (method (b))
-linear_predict_popularity[np.where(linear_predict_popularity<=0)] = 1e-9
-linear_predict_popularity[np.where(linear_predict_popularity>1.0)] = 1.0
-linear_predict_popularity = np.power(linear_predict_popularity,popularity_exp) # pop^(gamma) in paper
-dataset.add_last_popularity(linear_predict_popularity)
-popularity_matrix = get_popularity_from_load(pop_item_all)
+popularity_exp = world.lambda_pop
+# popularity_exp=0
+# print("----- popularity_exp : ",popularity_exp)
+# pop_item_all = get_dataset_tot_popularity()
+# # popularity for test...
+# last_stage_popualarity = pop_item_all[:,-2]
+# last_stage_popualarity = np.power(last_stage_popualarity,popularity_exp)   # laste stage popularity (method (a) )
+# linear_predict_popularity = pop_item_all[:,-2] + 0.5 * (pop_item_all[:,-2] - pop_item_all[:,-3]) # linear predicted popularity (method (b))
+# linear_predict_popularity[np.where(linear_predict_popularity<=0)] = 1e-9
+# linear_predict_popularity[np.where(linear_predict_popularity>1.0)] = 1.0
+# linear_predict_popularity = np.power(linear_predict_popularity,popularity_exp) # pop^(gamma) in paper
+# dataset.add_last_popularity(linear_predict_popularity)
+popularity_matrix = get_dataset_tot_popularity()
 # popularity_matrix[np.where(popularity_matrix<1e-9)] = 1e-9
 popularity_matrix = np.power(popularity_matrix, popularity_exp)  # pop^gamma
 print("------ popularity information after powed  ------")  # popularity information
@@ -101,8 +98,8 @@ file = utils.getFileName(world.model_name,
                          layers=world.config['lightGCN_n_layers'],
                         dns_k=world.DNS_K
                          )
-#file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-' + file
-file=str(world.lambda_pop)+'-'+str(world.config['de_weight'])+'-'+file
+#file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '<>' + str(0) + '-'+ file
+file=str(world.lambda_pop)+'-'+str(world.config['de_weight'])+'-'+str(world.config['decay'])+'-'+file
 #file=world.teacher_model_name+'-'+str(world.t_lambda_pop)+'-'+file
 #file=str(world.lambda_pop)+'-'+file
 weight_file = os.path.join(world.FILE_PATH, file)
@@ -135,7 +132,7 @@ model.eval()
 utils.load(model, weight_file)
 model = model.to(world.DEVICE)
 if world.model_name=='ConditionalBPRMF':
-    model.set_popularity(linear_predict_popularity)
+    model.set_popularity(popularity_matrix)
 #all_users, all_items = model.computer()
 # popularity=dataset.popularity()
 # # index=np.argsort(-popularity)

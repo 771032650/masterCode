@@ -42,7 +42,7 @@ teacher_file = utils.getFileName(world.teacher_model_name,
                          layers=world.config['teacher_layer'],
                          dns_k=world.DNS_K)
 teacher_file = str(world.de_weight)+'-'+teacher_file
-teacher_file = str(world.lambda_pop)+'-'+teacher_file
+teacher_file = str(world.t_lambda_pop)+'-'+teacher_file
 teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
 print('-------------------------')
 world.cprint("loaded teacher weights from")
@@ -50,7 +50,7 @@ print(teacher_weight_file)
 print('-------------------------')
 teacher_config = utils.getTeacherConfig(world.config)
 world.cprint('teacher')
-teacher_model = register.MODELS[world.model_name](world.config,
+teacher_model = register.MODELS[world.teacher_model_name](teacher_config,
                                                   dataset,
                                                   fix=True)
 teacher_model.eval()

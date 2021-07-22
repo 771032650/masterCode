@@ -7,7 +7,9 @@ def array(x):
 
 #dims = ['c_teacher','u_tracher','student','cd','ud']
 #dims = ['my-400','old-400','my-128','old-128']
-dims = ['de_rrd','ud']
+#dims = ['de_rrd','ud']
+dims=['64','128','192','256','300','350','400']
+#dims=['0.0','0.02','0.04','0.06','0.08','0.10','0.12', '0.14','0.16','0.18','0.20','0.22','0.24','0.26','0.28','0.30']
 #dims = ['5','10']
 # yelp_lgn = []
 amaz_mf = [{
@@ -715,15 +717,15 @@ def plot_metrics(data, key='precision', topk=1, title='Gowa MF'):
     plt.show()
 
 
-def plot_bias(data, key='APT', title="Gowa lgn"):
+def plot_bias(data, key='APT', title="Gowa lgn",b=0):
     if key == "APT":
         #d_SH = [bag[key][0] for bag in data]
-        d_MT = [bag[key][1] for bag in data]
-        #d_LT = [bag[key][2] for bag in data]
+        #d_MT = [bag[key][1] for bag in data]
+        d_LT = [bag[key][b] for bag in data]
         x = dims
         #plt.plot(x, d_SH, label="Short Head", marker="^")
-        plt.plot(x, d_MT, label="Medium Tail", marker="^")
-        #plt.plot(x, d_LT, label="Long Tail", marker="^")
+        #plt.plot(x, d_MT, label="Medium Tail", marker="^")
+        plt.plot(x, d_LT, label=title, marker="^")
         plt.legend()
     else:
         d = [bag[key] for bag in data]
@@ -832,17 +834,17 @@ if __name__ == "__main__":
     # data = comparsion_yelp_pre
     # bias = comparsion_yelp_bais
     title = 'lgn'
-    data1 =pla.comparsion_20210627_gowa_100_precision
-    data2 = pla.comparsion_20210627_yelp_100_precision
-    data3 = pla.comparsion_20210627_amaz_64_precision
-    bias1=pla.comparsion_20210627_gowa_100_APT
-    bias2 = pla.comparsion_20210627_yelp_100_APT
-    bias3 =pla.comparsion_20210627_amaz_64_APT
-    #plot_metrics(data, key='precision',title='gowa pca')
-    plot_new(data3, key='precision', title='amaz_precision', co=['green','red','black','orange','yellow','blue'])
-    plot_new(bias3, key='Short Head',title='amaz Short Head',co=['green','red','black','orange','yellow','blue'])
-    plot_new(bias3, key='Medium Tail', title='amaz Medium Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
-    plot_new(bias3, key='Short Tail', title='amaz Short Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    # data1 =pla.comparsion_20210627_gowa_100_precision
+    # data2 = pla.comparsion_20210627_yelp_100_precision
+    # data3 = pla.comparsion_20210627_amaz_64_precision
+    # bias1=pla.comparsion_20210627_gowa_100_APT
+    # bias2 = pla.comparsion_20210627_yelp_100_APT
+    # bias3 =pla.comparsion_20210627_amaz_64_APT
+    # #plot_metrics(data, key='precision',title='gowa pca')
+    # plot_new(data3, key='precision', title='amaz_precision', co=['green','red','black','orange','yellow','blue'])
+    # plot_new(bias3, key='Short Head',title='amaz Short Head',co=['green','red','black','orange','yellow','blue'])
+    # plot_new(bias3, key='Medium Tail', title='amaz Medium Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
+    # plot_new(bias3, key='Short Tail', title='amaz Short Tail', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
 
     # plot_com(data, key='precision', title='precision', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
     # plot_com(bias, key='Short Head',title='Short Head',co=['green','red','black','orange','yellow','blue'])
@@ -856,3 +858,11 @@ if __name__ == "__main__":
     #plot_bias(bias, key='APT5', title=title)
     # plot_bias(bias, key='I_KL', title=title)
     # plot_bias(bias, key='I_bin', title=title)
+    data1=pla.BPRMF_douban_metrics
+    data2 = pla.ConditionalBPRMF_CD_300_douban
+    bais=pla.BPRMF_kwai_bais
+    plot_metrics(data=data1,topk=1,title='douban_MF')
+    #plot_metrics(data=data2, topk=1, title='douban_300')
+    # plot_bias(data=bais,title='kwai long head',b=0)
+    # plot_bias(data=bais, title='kwai medium tail', b=1)
+    # plot_bias(data=bais, title='kwai short tail', b=2)

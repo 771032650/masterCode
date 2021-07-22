@@ -69,7 +69,7 @@ config['A_split'] = False
 config['bigdata'] = False
 config['teacher_dim'] = args.teacher_dim
 config['teacher_layer'] = args.teacher_layer
-config['teacher_model'] = 'lgn'
+config['teacher_model'] = args.teacher_model
 config['num_expert'] = args.num_expert
 config['de_loss'] = args.de_loss
 config['de_weight'] = args.de_weight
@@ -82,6 +82,7 @@ else:
 DNS_K = args.dns_k
 margin=args.margin
 method = args.method
+distill_method=args.distill_method
 if method == 'dns' and DNS_K == 1:
     method = 'original'
 

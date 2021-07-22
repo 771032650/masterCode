@@ -737,11 +737,6 @@ class Data2(Dataset):
     def add_expo_popularity(self,popularity):
         self.expo_popularity = popularity
 
-    def add_last_popularity(self,popularity):
-        self.last_popularity = popularity
-
-    def get_last_popularity(self):
-        return self.last_popularity
 
     def popularity(self):
 

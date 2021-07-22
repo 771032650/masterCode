@@ -173,9 +173,7 @@ def load_popularity():
     return pop_item_all
 
 def get_dataset_tot_popularity():
-    popularity_matrix = np.zeros(dataset.n_items).astype(np.float)
-    for a_item,clicked_users in dataset.train_item_list.items():
-        popularity_matrix[a_item] = len(clicked_users)
+    popularity_matrix=dataset.itemCount()
     popularity_matrix = popularity_matrix.astype(np.float)
     popularity_matrix += 1.0
     popularity_matrix /= popularity_matrix.sum()
@@ -220,17 +218,16 @@ if __name__ == '__main__':
 
 
     # ------------  pre computed popularity ------------------
-    pop_item_all = load_popularity()
-    # popularity for test...
-    last_stage_popualarity = pop_item_all[:,-2]
-    last_stage_popualarity = np.power(last_stage_popualarity,popularity_exp)   # laste stage popularity (method (a) )
-    linear_predict_popularity = pop_item_all[:,-2] + 0.5 * (pop_item_all[:,-2] - pop_item_all[:,-3]) # linear predicted popularity (method (b))
-    linear_predict_popularity[np.where(linear_predict_popularity<=0)] = 1e-9
-    linear_predict_popularity[np.where(linear_predict_popularity>1.0)] = 1.0
-    linear_predict_popularity = np.power(linear_predict_popularity,popularity_exp) # pop^(gamma) in paper
-    dataset.add_last_popularity(linear_predict_popularity)
+    # pop_item_all = load_popularity()
+    # # popularity for test...
+    # last_stage_popualarity = pop_item_all[:,-2]
+    # last_stage_popualarity = np.power(last_stage_popualarity,popularity_exp)   # laste stage popularity (method (a) )
+    # linear_predict_popularity = pop_item_all[:,-2] + 0.5 * (pop_item_all[:,-2] - pop_item_all[:,-3]) # linear predicted popularity (method (b))
+    # linear_predict_popularity[np.where(linear_predict_popularity<=0)] = 1e-9
+    # linear_predict_popularity[np.where(linear_predict_popularity>1.0)] = 1.0
+    # linear_predict_popularity = np.power(linear_predict_popularity,0) # pop^(gamma) in paper
 
-    popularity_matrix = get_popularity_from_load(pop_item_all)
+    popularity_matrix = get_dataset_tot_popularity()
     # popularity_matrix[np.where(popularity_matrix<1e-9)] = 1e-9
     popularity_matrix = np.power(popularity_matrix, popularity_exp)  # pop^gamma
     print("------ popularity information after powed  ------")  # popularity information
@@ -248,7 +245,7 @@ if __name__ == '__main__':
                              world.config['latent_dim_rec'],
                              layers=world.config['lightGCN_n_layers'],
                              dns_k=world.DNS_K)
-    file=str(world.lambda_pop)+'-'+str(world.de_weight)+'-'+file
+    file=str(world.lambda_pop)+'-'+str(world.de_weight)+'-'+str(world.config['decay'])+'-'+file
     weight_file = os.path.join(world.FILE_PATH, file)
     print(f"load and save to {weight_file}")
     if world.LOAD:
@@ -256,8 +253,8 @@ if __name__ == '__main__':
     # ----------------------------------------------------------------------------
     earlystop = utils.EarlyStop(patience=20, model=Recmodel, filename=weight_file)
     Recmodel = Recmodel.to(world.DEVICE)
-    if world.model_name == 'ConditionalBPRMF':
-        Recmodel.set_popularity(linear_predict_popularity)
+    # if world.model_name == 'ConditionalBPRMF':
+    #     Recmodel.set_popularity(linear_predict_popularity)
     # ----------------------------------------------------------------------------
     # init tensorboard
     if world.tensorboard:
@@ -304,13 +301,21 @@ if __name__ == '__main__':
     torch.save(earlystop.best_model, weight_file)
     Recmodel.load_state_dict(earlystop.best_model)
     results = Procedure.Test(dataset, Recmodel, world.TRAIN_epochs, valid=False)
+
+    popularity, user_topk, r = Procedure.Popularity_Bias(dataset, Recmodel, valid=False)
+    metrics1 = utils.popularity_ratio(popularity, user_topk, dataset)
+    testDict = dataset.testDict
+    metrics2 = utils.PrecisionByGrpup(testDict, user_topk, dataset, r)
+
     log_file = os.path.join(world.LOG_PATH, utils.getLogFile())
     with open(log_file, 'a') as f:
         f.write("#######################################\n")
+        f.write(f"{file}\n")
         f.write(f"SEED: {world.SEED}, DNS_K: {str(world.DNS_K)}, Stop at: {earlystop.best_epoch+1}/{world.TRAIN_epochs}\n"\
                 f"flag: {file.split('.')[0]}. \nLR: {world.config['lr']}, DECAY: {world.config['decay']}\n"\
                 f"TopK: {world.topks}\n")
         f.write(f"%%Valid%%\n{best_result}\n%%TEST%%\n{results}\n")
+        f.write(f"{metrics1}\n{metrics2}\n")
         f.close()
 
 

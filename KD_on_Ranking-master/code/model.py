@@ -670,6 +670,7 @@ class ConditionalBPRMF(BasicModel):
         items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE)
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
+        rating=torch.relu(rating)
         rating=self.felu(rating) + 1
         rating = rating * self.last_popularity[items]
         return rating
@@ -730,21 +731,13 @@ class ConditionalBPRMF(BasicModel):
         users_emb = all_users[users]
         items_emb = all_items[items]
         rating = torch.sum(users_emb * items_emb, dim=1)
+
         rating = self.felu(rating) + 1
         items_pop = self.last_popularity[items]
-        return rating * items_pop
+        rating=rating * items_pop
+        return rating
 
-    def pre_pop(self, users, items):
-        """
-        without sigmoid
-        """
-        all_users, all_items = self.computer()
-        users_emb = all_users[users]
-        items_emb = all_items[items]
-        rating =torch.sum(users_emb*items_emb,dim=1)
-        rating = self.felu(rating) + 1
-        items_pop=self.last_popularity[items]
-        return rating*items_pop
+
 
 class BPRMF(BasicModel):
     '''
@@ -797,12 +790,14 @@ class BPRMF(BasicModel):
         items_emb = self.embedding_item.weight
 
         return users_emb, items_emb
+
     def getUsersRating(self, users):
         all_users, all_items = self.computer()
         users_emb = all_users[users]
         items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE)
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
+        #rating = torch.relu(rating)
         #rating=self.felu(rating) + 1
         return rating
 
@@ -821,8 +816,8 @@ class BPRMF(BasicModel):
         pos_scores = torch.sum(users_emb*pos_emb,dim=1)  # users, pos_items, neg_items have the same shape
         neg_scores = torch.sum(users_emb*neg_emb,dim=1)
         # item stop
-        pos_scores = self.felu(pos_scores)
-        neg_scores = self.felu(neg_scores)
+        # pos_scores = self.felu(pos_scores)
+        # neg_scores = self.felu(neg_scores)
 
         maxi = torch.log(self.f(pos_scores - neg_scores) + 1e-10)
         #self.condition_ratings = (self.felu(self.batch_ratings) + 1) * pos_pops.squeeze()
@@ -861,5 +856,6 @@ class BPRMF(BasicModel):
         users_emb = all_users[users]
         items_emb = all_items[items]
         rating = torch.sum(users_emb*items_emb,dim=1)
+        #rating = torch.relu(rating)
         #rating = self.felu(rating) + 1
         return rating

@@ -142,6 +142,7 @@ def Distill_DNS_pop(dataset, student, sampler, loss_class, epoch, w=None):
         S = sampler.PerSample()
     S = torch.Tensor(S).float().to(world.DEVICE)
     users, posItems, negItems, pos_pop, neg_pop = S[:, 0].long(), S[:, 1].long(), S[:, 2].long(), S[:, 3], S[:, 4]
+    negItems=negItems.reshape((-1,1))
     users, posItems, negItems, pos_pop, neg_pop = utils.shuffle(users, posItems, negItems, pos_pop, neg_pop)
     total_batch = len(users) // world.config['bpr_batch_size'] + 1
     for (batch_i, (batch_users, batch_pos, batch_neg,batch_pos_pop,batch_neg_pop)) in enumerate(
@@ -151,7 +152,7 @@ def Distill_DNS_pop(dataset, student, sampler, loss_class, epoch, w=None):
                             pos_pop, neg_pop,
                             batch_size=world.config['bpr_batch_size'])):
         with timer(name="KD"):
-            _, weights, KD_loss = sampler.Sample(
+            batch_neg, weights, KD_loss = sampler.Sample(
                 batch_users, batch_pos, batch_neg, epoch)
         with timer(name="BP"):
             cri = bpr.stageTwo(batch_users,
@@ -161,7 +162,7 @@ def Distill_DNS_pop(dataset, student, sampler, loss_class, epoch, w=None):
                                add_loss=KD_loss,
                                weights=weights)
         aver_loss += cri
-        aver_kd+=KD_loss
+        aver_kd+=KD_loss.cpu().item()
         # Additional section------------------------
         #
         # ------------------------------------------
@@ -192,9 +193,9 @@ def BPR_train_DNS_neg(dataset, recommend_model, loss_class, epoch, w=None):
     Recmodel: PairWiseModel = recommend_model
     Recmodel.train()
     bpr: utils.BPRLoss = loss_class
-    S = Sample_DNS_python(dataset, world.DNS_K)
+    S = Sample_original(dataset)
     S = torch.Tensor(S).long().to(world.DEVICE)
-    users, posItems, negItems = S[:, 0], S[:, 1], S[:, 2:]
+    users, posItems, negItems = S[:, 0], S[:, 1], S[:, 2]
     users, posItems, negItems = utils.shuffle(users, posItems, negItems)
     total_batch = len(users) // world.config['bpr_batch_size'] + 1
     aver_loss = 0.
@@ -235,7 +236,7 @@ def BPR_train_DNS_neg_pop(dataset, recommend_model, loss_class, epoch, w=None):
     Recmodel: PairWiseModel = recommend_model
     Recmodel.train()
     bpr: utils.BPRLoss = loss_class
-    S = generator_n_batch_with_pop(dataset)
+    S = Sample_original(dataset)
     S = torch.Tensor(S).float().to(world.DEVICE)
     users, posItems, negItems,pos_pop,neg_pop = S[:, 0].long(), S[:, 1].long(), S[:, 2].long(),S[:, 3], S[:, 4]
     users, posItems, negItems,pos_pop,neg_pop = utils.shuffle(users, posItems, negItems,pos_pop,neg_pop)
