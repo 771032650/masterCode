@@ -370,7 +370,7 @@ class LightExpert(LightGCN):
                      dataset: BasicDataset,
                      teacher_model: LightGCN,
                      ):
-            super(LightExpert, self).__init__(config, dataset, init=True)
+            super(LightExpert, self).__init__()
             self.config = config
             self.dataset = dataset
             self.tea = teacher_model
@@ -670,9 +670,9 @@ class ConditionalBPRMF(BasicModel):
         items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE)
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
-        rating=torch.relu(rating)
         rating=self.felu(rating) + 1
         rating = rating * self.last_popularity[items]
+        #rating=torch.sigmoid(rating)
         return rating
 
     def getEmbedding(self, users, pos_items, neg_items):
@@ -695,7 +695,8 @@ class ConditionalBPRMF(BasicModel):
         neg_scores = self.felu(neg_scores) + 1
         pos_scores_with_pop = pos_scores*pos_pops
         neg_scores_with_pop = neg_scores*neg_pops
-
+        # pos_scores_with_pop=torch.sigmoid(pos_scores_with_pop)
+        # neg_scores_with_pop = torch.sigmoid(neg_scores_with_pop)
         maxi = torch.log(self.f(pos_scores_with_pop - neg_scores_with_pop) + 1e-10)
         #self.condition_ratings = (self.felu(self.batch_ratings) + 1) * pos_pops.squeeze()
         #self.mf_loss_ori = -(torch.mean(maxi))
@@ -731,10 +732,10 @@ class ConditionalBPRMF(BasicModel):
         users_emb = all_users[users]
         items_emb = all_items[items]
         rating = torch.sum(users_emb * items_emb, dim=1)
-
         rating = self.felu(rating) + 1
         items_pop = self.last_popularity[items]
         rating=rating * items_pop
+        #rating = torch.sigmoid(rating)
         return rating
 
 
@@ -859,3 +860,75 @@ class BPRMF(BasicModel):
         #rating = torch.relu(rating)
         #rating = self.felu(rating) + 1
         return rating
+
+class BPRMFExpert(BPRMF):
+        def __init__(self,
+                     config: dict,
+                     dataset: BasicDataset,
+                     teacher_model: BPRMF,
+                     ):
+            super(BPRMFExpert, self).__init__(config,dataset)
+            self.config = config
+            self.dataset = dataset
+            self.tea = teacher_model
+            self.tea.fix = True
+            self.de_weight = config['de_weight']
+
+            # Expert Configuration
+            self.num_experts = self.config["num_expert"]
+            self.latent_dim_tea = self.tea.latent_dim
+            expert_dims = [self.latent_dim, (self.latent_dim_tea + self.latent_dim) // 2, self.latent_dim_tea]
+
+            ## for self-distillation
+            if self.tea.latent_dim == self.latent_dim:
+                expert_dims = [self.latent_dim, self.latent_dim // 2, self.latent_dim_tea]
+
+            self.user_experts = nn.ModuleList([Expert(expert_dims) for i in range(self.num_experts)])
+            self.item_experts = nn.ModuleList([Expert(expert_dims) for i in range(self.num_experts)])
+
+            self.user_selection_net = nn.Sequential(nn.Linear(self.latent_dim_tea, self.num_experts), nn.Softmax(dim=1))
+            self.item_selection_net = nn.Sequential(nn.Linear(self.latent_dim_tea, self.num_experts), nn.Softmax(dim=1))
+
+            # num_experts_params = count_parameters(self.user_experts) + count_parameters(self.item_experts)
+            # num_gates_params = count_parameters(self.user_selection_net) + count_parameters(self.item_selection_net)
+
+            self.sm = nn.Softmax(dim=1)
+
+            self.T = 10
+
+        def get_DE_loss(self, batch_entity, is_user=True):
+
+            if is_user:
+                s = self.embedding_user(batch_entity)
+                t = self.tea.embedding_user(batch_entity)
+
+                experts = self.user_experts
+                selection_net = self.user_selection_net
+
+            else:
+                s = self.embedding_item(batch_entity)
+                t = self.tea.embedding_item(batch_entity)
+
+                experts = self.item_experts
+                selection_net = self.item_selection_net
+
+            selection_dist = selection_net(t)  # batch_size x num_experts
+
+            if self.num_experts == 1:
+                selection_result = 1.
+            else:
+                # Expert Selection
+                g = torch.distributions.Gumbel(0, 1).sample(selection_dist.size()).to(world.DEVICE)
+                eps = 1e-10  # for numerical stability
+                selection_dist = selection_dist + eps
+                selection_dist = self.sm((selection_dist.log() + g) / self.T)
+                selection_dist = torch.unsqueeze(selection_dist, 1)  # batch_size x 1 x num_experts
+                selection_result = selection_dist.repeat(1, self.tea.latent_dim,
+                                                         1)  # batch_size x teacher_dims x num_experts
+            expert_outputs = [experts[i](s).unsqueeze(-1) for i in range(self.num_experts)]  # s -> t
+            expert_outputs = torch.cat(expert_outputs, -1)  # batch_size x teacher_dims x num_experts
+            expert_outputs = expert_outputs * selection_result  # batch_size x teacher_dims x num_experts
+            expert_outputs = expert_outputs.sum(2)  # batch_size x teacher_dims
+            DE_loss = torch.mean(((t - expert_outputs) ** 2).sum(-1))
+            return DE_loss
+

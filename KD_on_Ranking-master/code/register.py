@@ -53,7 +53,7 @@ MODELS = {
     'lgn': model.LightGCN,
     'ulgn': model.UnbaisLGN,
     'leb': model.MyModel,
-    'lep': model.LightExpert,
+    'lep': model.BPRMFExpert,
     'newModel':model.newModel,
     'myModel':model.MyModel,
     'ConditionalBPRMF':model.ConditionalBPRMF,

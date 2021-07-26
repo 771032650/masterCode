@@ -320,9 +320,9 @@ class CD:
                  student: PairWiseModel,
                  teacher: PairWiseModel,
                  dns,
-                 lamda=0.5,
+                 lamda=1,
                  n_distill=10,
-                 t1=2,
+                 t1=1,
                  t2=0):
         self.student = student
         self.teacher = teacher.eval()
@@ -333,8 +333,9 @@ class CD:
         self.lamda = lamda
         self.n_distill = n_distill
         self.t1, self.t2 = t1, t2
-        ranking_list = np.asarray([1-(i/5000) for i in range(5000)])
+        ranking_list = np.asarray([i/50 for i in range(100)])
         ranking_list = torch.FloatTensor(ranking_list)
+        ranking_list=torch.exp(-ranking_list*self.lamda)
         self.ranking_mat = torch.stack([ranking_list] * self.dataset.n_users, 0)
         self.ranking_mat.requires_grad = False
         # self.crsNeg = self.dataset.getUserPosItems(range(self.dataset.n_users))
@@ -342,8 +343,8 @@ class CD:
         # self.userneglist=[]
         # for user in range(self.dataset.n_users):
         #     self.userneglist.append(np.delete(neglist, self.crsNeg[user], -1))
-        with timer(name="CD sample"):
-            self.get_rank_sample(MODEL=self.teacher)
+        # with timer(name="CD sample"):
+        #     self.get_rank_sample(MODEL=self.teacher)
     def PerSample(self, batch=None):
         if self.strategy == "random":
             MODEL = None
@@ -354,8 +355,8 @@ class CD:
         else:
             raise TypeError("CD support [random, student guide, teacher guide], " \
                             f"But got {self.strategy}")
-        # with timer(name="CD sample"):
-        #     self.get_rank_sample(MODEL=MODEL)
+        with timer(name="CD sample"):
+            self.get_rank_sample(MODEL=MODEL)
         # if batch is not None:
         #     return UniformSample_DNS_yield(self.dataset,
         #                                    self.dns_k,
@@ -384,8 +385,8 @@ class CD:
         with torch.no_grad():
             #items_score = MODEL.getUsersRating(batch_users)
             batch_size=1024
-            rank_scores = torch.zeros(self.dataset.n_users, 5000)
-            rank_items = torch.zeros(self.dataset.n_users, 5000)
+            rank_scores = torch.zeros(self.dataset.n_users, 100)
+            rank_items = torch.zeros(self.dataset.n_users, 100)
             for user in range(0, self.dataset.n_users, batch_size):
                 end = min(user + batch_size, self.dataset.n_users)
                 scores = MODEL.getUsersRating(
@@ -397,7 +398,7 @@ class CD:
                     exclude_user.extend([i] * len(items))
                     exclude_item.extend(items)
                 scores[exclude_user, exclude_item] = -1e10
-                rank_scores[user:end],  rank_items[user:end] = torch.topk(scores, 5000)
+                rank_scores[user:end],  rank_items[user:end] = torch.topk(scores, 100)
                 del scores
 
             for user in range(self.dataset.n_users):
@@ -742,29 +743,21 @@ class UD:
         self.lamda = lamda
         self.n_distill = n_distill
         self.t1, self.t2 = t1, t2
-        ranking_list = np.asarray([1-(i/5000) for i in range(5000)])
+        ranking_list = np.asarray([i / 50 for i in range(100)])
         ranking_list = torch.FloatTensor(ranking_list)
+        ranking_list = torch.exp(-ranking_list * self.lamda)
         self.ranking_mat = torch.stack([ranking_list] * self.dataset.n_users, 0)
         self.ranking_mat.requires_grad = False
-        #self.popularity = self.dataset.get_last_popularity()
-        # sum_popmularit = np.sum(self.popularity)
-        # self.popularity = self.popularity / sum_popmularit
-        #self.popularity = torch.Tensor(self.popularity).to(world.DEVICE)
 
-        with timer(name="UD sample"):
-            self.get_rank_sample(MODEL=self.teacher)
+
     def PerSample(self, batch=None):
-        # with timer(name="CD sample"):
-        #     self.get_rank_sample(MODEL=self.teacher)
-            # if batch is not None:
-            #     return UniformSample_DNS_yield(self.dataset,
-            #                                    self.dns_k,
-            #                                    batch_size=batch)
-            # else:
-            #     return UniformSample_DNS(self.dataset, self.dns_k)
+        with timer(name="UD sample"):
+            self.get_rank_sample(MODEL= self.student)
+        if world.distill_method == 'epoch':
+            return Sample_DNS_python(self.dataset, self.dns_k)
+        else:
+            return generator_n_batch_with_pop(self.dataset)
 
-            # return Sample_DNS_python(self.dataset, self.dns_k )
-        return generator_n_batch_with_pop(self.dataset)
     def Sample(self, batch_users, batch_pos, batch_neg, epoch):
         return self.sample_diff(batch_users, batch_pos, batch_neg,
                                 self.strategy)
@@ -783,8 +776,8 @@ class UD:
         with torch.no_grad():
             #items_score = MODEL.getUsersRating(batch_users)
             batch_size=1024
-            rank_scores = torch.zeros(self.dataset.n_users, 5000)
-            rank_items = torch.zeros(self.dataset.n_users, 5000)
+            rank_scores = torch.zeros(self.dataset.n_users, 100)
+            rank_items = torch.zeros(self.dataset.n_users, 100)
             for user in range(0, self.dataset.n_users, batch_size):
                 end = min(user + batch_size, self.dataset.n_users)
                 scores = torch.clamp(MODEL.getUsersRating(
@@ -796,25 +789,18 @@ class UD:
                     exclude_user.extend([i] * len(items))
                     exclude_item.extend(items)
                 scores[exclude_user, exclude_item] = -1e10
-                rank_scores[user:end],  rank_items[user:end] = torch.topk(scores, 5000)
+                rank_scores[user:end],  rank_items[user:end] = torch.topk(scores, 100)
                 del scores
 
             for user in range(self.dataset.n_users):
                 ranking_list = self.ranking_mat[user]
                 rating=rank_scores[user]
                 negitems=rank_items[user]
-                sampled_items = set()
-                while True:
-                    with timer(name="compare"):
-                        samples = torch.multinomial(ranking_list, 2, replacement=True)
-                        if rating[samples[0]] > rating[samples[1]]:
-                            sampled_items.add(negitems[samples[0]])
-                        else:
-                            sampled_items.add(negitems[samples[1]])
-                        if len(sampled_items)>=self.n_distill:
-                            break
+                samples = torch.multinomial(ranking_list, self.n_distill, replacement=True)
+                sampled_items=negitems[samples]
+
                 self.rank_samples[user] = torch.Tensor(list(sampled_items))
-        self.rank_samples=self.rank_samples.to(world.DEVICE).long()
+        self.rank_samples=rank_items.to(world.DEVICE).long()
 
     def sample_diff(self, batch_users, batch_pos, batch_neg, strategy):
         STUDENT = self.student
@@ -822,19 +808,13 @@ class UD:
 
         dns_k = self.dns_k
         # ----
-        # student_scores = userAndMatrix(batch_users, batch_neg, STUDENT)
-        # _, top1 = student_scores.max(dim=1)
-        # idx = torch.arange(len(batch_users))
-        negitems = batch_neg
+        student_scores = userAndMatrix(batch_users, batch_neg, STUDENT)
+        _, top1 = student_scores.max(dim=1)
+        idx = torch.arange(len(batch_users))
+        negitems = batch_neg[idx, top1]
         # ----
         random_samples=self.rank_samples[batch_users,:]
-        # samples_vector = random_samples.reshape((-1, ))
-        #samples_scores_T = userAndMatrix(batch_users, random_samples, TEACHER)
-        dim_item = random_samples.shape[-1]
-        vector_user = batch_users.repeat((dim_item, 1)).t().reshape((-1,))
-        vector_item = random_samples.reshape((-1,))
         samples_scores_T=userAndMatrix(batch_users, random_samples, TEACHER)
-        #samples_scores_T=samples_scores_T*self.popularity[random_samples.long()].float()
         samples_scores_S = userAndMatrix(batch_users, random_samples, STUDENT)
         weights = torch.sigmoid((samples_scores_T + self.t2) / self.t1)
         inner = torch.sigmoid(samples_scores_S)
