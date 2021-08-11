@@ -671,6 +671,8 @@ class ConditionalBPRMF(BasicModel):
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
         rating=self.felu(rating) + 1
+        #rating = torch.sigmoid(torch.relu(rating))
+        #rating = torch.sigmoid(rating/2)
         rating = rating * self.last_popularity[items]
         #rating=torch.sigmoid(rating)
         return rating
@@ -693,10 +695,15 @@ class ConditionalBPRMF(BasicModel):
         # item stop
         pos_scores = self.felu(pos_scores) + 1
         neg_scores = self.felu(neg_scores) + 1
+        #pos_scores = torch.sigmoid(torch.relu(pos_scores))
+        #neg_scores = torch.sigmoid(torch.relu(neg_scores))
+        # pos_scores = torch.sigmoid(pos_scores/2)
+        # neg_scores = torch.sigmoid(neg_scores/2)
+        #pos_scores_with_pop = torch.sigmoid(pos_scores_with_pop)
+        #neg_scores_with_pop = torch.sigmoid(neg_scores_with_pop)
         pos_scores_with_pop = pos_scores*pos_pops
         neg_scores_with_pop = neg_scores*neg_pops
-        # pos_scores_with_pop=torch.sigmoid(pos_scores_with_pop)
-        # neg_scores_with_pop = torch.sigmoid(neg_scores_with_pop)
+
         maxi = torch.log(self.f(pos_scores_with_pop - neg_scores_with_pop) + 1e-10)
         #self.condition_ratings = (self.felu(self.batch_ratings) + 1) * pos_pops.squeeze()
         #self.mf_loss_ori = -(torch.mean(maxi))
@@ -704,6 +711,8 @@ class ConditionalBPRMF(BasicModel):
         # fsoft=nn.Softplus()
         # mf_loss = -torch.mean(fsoft(pos_scores_with_pop - neg_scores_with_pop))
         # regular
+
+        #mf_loss = torch.mean( torch.nn.functional.softplus(neg_scores_with_pop - pos_scores_with_pop))
         reg_loss = (1 / 2) * (users_emb_ego.norm(2).pow(2) +
                               pos_emb_ego.norm(2).pow(2) +
                               neg_emb_ego.norm(2).pow(2)) / float(len(users))
@@ -733,6 +742,24 @@ class ConditionalBPRMF(BasicModel):
         items_emb = all_items[items]
         rating = torch.sum(users_emb * items_emb, dim=1)
         rating = self.felu(rating) + 1
+        #rating = torch.sigmoid(torch.relu(rating))
+        #rating = torch.sigmoid(rating/2)
+        items_pop = self.last_popularity[items]
+        rating=rating * items_pop
+        #rating = torch.sigmoid(rating)
+        return rating
+
+    def pre_pop(self, users, items):
+        """
+        without sigmoid
+        """
+        all_users, all_items = self.computer()
+        users_emb = all_users[users]
+        items_emb = all_items[items]
+        rating = torch.sum(users_emb * items_emb, dim=1)
+        rating = self.felu(rating) + 1
+        #rating = torch.sigmoid(torch.relu(rating))
+        #rating = torch.sigmoid(rating/2)
         items_pop = self.last_popularity[items]
         rating=rating * items_pop
         #rating = torch.sigmoid(rating)

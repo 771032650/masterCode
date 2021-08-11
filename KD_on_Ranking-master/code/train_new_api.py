@@ -175,9 +175,11 @@ def load_popularity():
 def get_dataset_tot_popularity():
     popularity_matrix=dataset.itemCount()
     popularity_matrix = popularity_matrix.astype(np.float)
+    p_max= popularity_matrix.max()
+    p_min=popularity_matrix.min()
     popularity_matrix += 1.0
     popularity_matrix /= popularity_matrix.sum()
-    popularity_matrix = ( popularity_matrix - popularity_matrix.min() ) / ( popularity_matrix.max() - popularity_matrix.min() )
+    #popularity_matrix = ( popularity_matrix - p_min ) / ( p_max - p_min )
     print("popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))
     # popularity_matrix = np.power(popularity_matrix,popularity_exp)
     # print("After power,popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))

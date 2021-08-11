@@ -145,12 +145,12 @@ if __name__ == '__main__':
     dataset.add_expo_popularity(popularity_matrix)
 
     # loading teacher
-    teacher_file = utils.getFileName(world.model_name,
+    teacher_file = utils.getFileName(world.teacher_model_name,
                                      world.dataset,
                                      world.config['teacher_dim'],
                                      layers=world.config['teacher_layer'],
                                      dns_k=world.DNS_K)
-    teacher_file = str(10.0) + '-' + str(world.config['decay']) + '-' +teacher_file
+    teacher_file = str(world.de_weight) + '-' + str(world.config['decay']) + '-' +teacher_file
     teacher_file = str(world.t_lambda_pop) + '-' + teacher_file
     teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
     print('-------------------------')
@@ -270,7 +270,7 @@ if __name__ == '__main__':
     testDict = dataset.testDict
     metrics2 = utils.PrecisionByGrpup(testDict, user_topk, dataset, r)
 
-    log_file = os.path.join(world.LOG_PATH, utils.getLogFile())
+    log_file = os.path.join(world.LOG_PATH, world.SAMPLE_METHOD+'-'+utils.getLogFile())
     with open(log_file, 'a') as f:
         f.write("#######################################\n")
         f.write(f"{file}\n")

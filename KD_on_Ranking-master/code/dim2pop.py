@@ -8,9 +8,10 @@ def array(x):
 #dims = ['c_teacher','u_tracher','student','cd','ud']
 #dims = ['my-400','old-400','my-128','old-128']
 #dims = ['de_rrd','ud']
-dims=['64','128','192','256','300','350','400']
+#dims=['64','128','192','256','300','350','400']
 #dims=['0.0','0.02','0.04','0.06','0.08','0.10','0.12', '0.14','0.16','0.18','0.20','0.22','0.24','0.26','0.28','0.30']
 #dims = ['5','10']
+dims = ['b-b','u-m','b-m','m-m']
 # yelp_lgn = []
 amaz_mf = [{
     'precision': array([0.00318941, 0.00269134, 0.00239044]),
@@ -716,6 +717,21 @@ def plot_metrics(data, key='precision', topk=1, title='Gowa MF'):
     plt.xticks(x)
     plt.show()
 
+def plot_metrics_double(data1,data2, data3,key='precision', topk=1, title='Gowa MF'):
+    d1 = [bag[key][topk] for bag in data1]
+    d2 = [bag[key][topk] for bag in data2]
+    d3 = [bag[key][topk] for bag in data3]
+    x = dims
+    plt.plot(x, d1, marker="^")
+    plt.plot(x, d3)
+    plt.plot(x, d2, marker="_")
+
+    plt.xlabel("pop")
+    plt.ylabel(f"{key}")
+    plt.title(title)
+    plt.xticks(x)
+    plt.legend(["bais",'no bais',"unbais"])
+    plt.show()
 
 def plot_bias(data, key='APT', title="Gowa lgn",b=0):
     if key == "APT":
@@ -737,7 +753,7 @@ def plot_bias(data, key='APT', title="Gowa lgn",b=0):
     plt.title(title)
     plt.show()
 
-def plot_new(data, key='APT', title="Gowa lgn",co='red'):
+def plot_new(data, key='APT', title="Gowa lgn",co='blue'):
     labels = dims
     width = 0.35
 
@@ -858,10 +874,14 @@ if __name__ == "__main__":
     #plot_bias(bias, key='APT5', title=title)
     # plot_bias(bias, key='I_KL', title=title)
     # plot_bias(bias, key='I_bin', title=title)
-    data1=pla.BPRMF_douban_metrics
-    data2 = pla.ConditionalBPRMF_CD_300_douban
-    bais=pla.BPRMF_kwai_bais
-    plot_metrics(data=data1,topk=1,title='douban_MF')
+    data1=pla.UD_100_10_kwai_m
+    data2 = pla.UD_100_10_kwai_b
+    data3 = pla.BPRMF_100_gowa
+    plot_new(data1, key='precision', title='kwai precision',co='red')
+    plot_new(data2, key='Short Head', title='kwai Short Head',co='yellow' )
+    #plot_metrics_double(data1=data1,data2=data2, data3=data3,topk=1, title='gowa_MF')
+    #bais=pla.BPRMF_kwai_bais
+    #plot_metrics(data=data1,topk=1,title='douban_MF')
     #plot_metrics(data=data2, topk=1, title='douban_300')
     # plot_bias(data=bais,title='kwai long head',b=0)
     # plot_bias(data=bais, title='kwai medium tail', b=1)

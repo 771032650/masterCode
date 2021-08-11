@@ -35,7 +35,6 @@ class BPRLoss:
         #     return self.cd_loss(users, pos, weights, add_loss)
         loss, reg_loss = self.model.bpr_loss(users, pos, neg, weights=weights)
         reg_loss = reg_loss * self.weight_decay
-        loss = loss + reg_loss
         if add_loss is not None:
             assert add_loss.requires_grad == True
             # print(loss.item(), add_loss.item())
@@ -43,6 +42,7 @@ class BPRLoss:
                 loss = loss*world.loss_weight + add_loss*world.kd_weight
             else:
                 loss=loss+add_loss
+        loss = loss + reg_loss
         self.opt.zero_grad()
         loss.backward()
         self.opt.step()
@@ -62,10 +62,10 @@ class BPRLoss:
         loss, reg_loss = self.model.bpr_loss_pop(users, pos, neg, pos_pop,
                  neg_pop,weights=weights)
         reg_loss = reg_loss * self.weight_decay
-        loss = loss + reg_loss
         if add_loss is not None:
             assert add_loss.requires_grad == True
             loss = loss*world.loss_weight + add_loss*world.kd_weight
+        loss = loss + reg_loss
         self.opt.zero_grad()
         loss.backward()
         self.opt.step()

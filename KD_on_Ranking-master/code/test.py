@@ -98,7 +98,7 @@ file = utils.getFileName(world.model_name,
                          layers=world.config['lightGCN_n_layers'],
                         dns_k=world.DNS_K
                          )
-#file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '<>' + str(0) + '-'+ file
+#file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-'+ file
 file=str(world.lambda_pop)+'-'+str(world.config['de_weight'])+'-'+str(world.config['decay'])+'-'+file
 #file=world.teacher_model_name+'-'+str(world.t_lambda_pop)+'-'+file
 #file=str(world.lambda_pop)+'-'+file
