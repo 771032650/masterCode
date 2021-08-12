@@ -1,0 +1,392 @@
+# -*- coding: UTF-8 -*-
+
+from __future__ import print_function
+import os
+from pprint import pprint
+
+from world import cprint
+
+import Procedure
+
+from utils import timer
+
+from model import TwoLinear, ConditionalBPRMF
+
+from sample import userAndMatrix
+
+print('*** Current working path ***')
+print(os.getcwd())
+# os.chdir(os.getcwd()+"/NeuRec")
+
+import os
+
+import time
+import multiprocessing
+
+import world
+import torch
+import numpy as np
+import utils
+
+from tensorboardX import SummaryWriter
+
+
+
+import sys
+sys.path.append(os.getcwd())
+print(sys.path)
+import random as rd
+import signal
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+def term(sig_num, addtion):
+    print('term current pid is %s, group id is %s' % (os.getpid(), os.getpgrp()))
+    os.killpg(os.getpgid(os.getpid()), signal.SIGKILL)
+signal.signal(signal.SIGTERM, term)
+
+cores = multiprocessing.cpu_count() // 2
+max_pre = 1
+print("half cores:",cores)
+# ----------------------------------------------------------------------------
+utils.set_seed(world.SEED)
+print(f"[SEED:{world.SEED}]")
+# ----------------------------------------------------------------------------
+# init model
+world.DISTILL = False
+if len(world.comment) == 0:
+    comment = f"{world.method}"
+    if world.EMBEDDING:
+        comment = comment + "-embed"
+    world.comment = comment
+import register
+from register import dataset
+
+
+def load_popularity():
+    r_path = world.DATA_PATH+"/"+world.dataset+"/"
+    pop_save_path = r_path+"item_pop_seq_ori2.txt"
+    if not os.path.exists(pop_save_path):
+        pop_save_path = r_path+"item_pop_seq_ori.txt"
+    print("popularity used:",pop_save_path)
+    with open(pop_save_path) as f:
+        print("pop save path: ", pop_save_path)
+        item_list = []
+        pop_item_all = []
+        for line in f:
+            line = line.strip().split()
+            item, pop_list = int(line[0]), [float(x) for x in line[1:]]
+            item_list.append(item)
+            pop_item_all.append(pop_list)
+    pop_item_all = np.array(pop_item_all)
+    print("pop_item_all shape:", pop_item_all.shape)
+    print("load pop information:",pop_item_all.mean(),pop_item_all.max(),pop_item_all.min())
+    return pop_item_all
+
+def get_dataset_tot_popularity():
+    popularity_matrix=dataset.itemCount()
+    popularity_matrix = popularity_matrix.astype(np.float)
+    popularity_matrix += 1.0
+    popularity_matrix /= popularity_matrix.sum()
+    popularity_matrix = ( popularity_matrix - popularity_matrix.min() ) / ( popularity_matrix.max() - popularity_matrix.min() )
+    print("popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))
+    # popularity_matrix = np.power(popularity_matrix,popularity_exp)
+    # print("After power,popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))
+    return popularity_matrix
+
+def get_popularity_from_load(item_pop_all):
+    popularity_matrix = item_pop_all[:,:-1]  # don't contain the popularity in test stages
+    print("------ popularity information --------")
+    print("   each stage mean:",popularity_matrix.mean(axis=0))
+    print("   each stage max:",popularity_matrix.max(axis=0))
+    print("   each stage min:",popularity_matrix.min(axis=0))
+    # popularity_matrix = np.power(popularity_matrix,popularity_exp)  # don't contain the popullarity for test stages...
+    # print("------ popularity information after power  ------")
+    # print("   each stage mean:",popularity_matrix.mean(axis=0))
+    # print("   each stage max:",popularity_matrix.max(axis=0))
+    # print("   each stage min:",popularity_matrix.min(axis=0))
+    return popularity_matrix
+
+
+
+
+if __name__ == '__main__':
+    # random.seed(123)
+    # tf.set_random_seed(123)
+
+
+    # os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda)
+    # config = dict()
+    # config['n_users'] = data.n_users
+    # config['n_items'] = data.n_items  # in batch_test.py
+    # model_type = ''
+    # print("data size:",sys.getsizeof(data)/(10**6),"GB")
+    # # ----------  important parameters -------------------------
+    popularity_exp = world.lambda_pop
+    t_popularity_exp = 0.0
+    print("----- popularity_exp : ",popularity_exp)
+    # test_batch_size = min(1024,args.batch_size)
+
+
+
+    # ------------  pre computed popularity ------------------
+    # pop_item_all = load_popularity()
+    # # popularity for test...
+    # last_stage_popualarity = pop_item_all[:,-2]
+    # last_stage_popualarity = np.power(last_stage_popualarity,popularity_exp)   # laste stage popularity (method (a) )
+    # linear_predict_popularity = pop_item_all[:,-2] + 0.5 * (pop_item_all[:,-2] - pop_item_all[:,-3]) # linear predicted popularity (method (b))
+    # linear_predict_popularity[np.where(linear_predict_popularity<=0)] = 1e-9
+    # linear_predict_popularity[np.where(linear_predict_popularity>1.0)] = 1.0
+    # linear_predict_popularity = np.power(linear_predict_popularity,popularity_exp) # pop^(gamma) in paper
+    # dataset.add_last_popularity(linear_predict_popularity)
+    # t_linear_predict_popularity = np.power(linear_predict_popularity, t_popularity_exp)
+
+    popularity_matrix = get_dataset_tot_popularity()
+    # popularity_matrix[np.where(popularity_matrix<1e-9)] = 1e-9
+    #popularity_matrix = np.power(popularity_matrix, popularity_exp)  # pop^gamma
+    print("------ popularity information after powed  ------")  # popularity information
+    print("   each stage mean:", popularity_matrix.mean(axis=0))
+    print("   each stage max:", popularity_matrix.max(axis=0))
+    print("   each stage min:", popularity_matrix.min(axis=0))
+    dataset.add_expo_popularity(popularity_matrix)
+
+    # loading teacher
+    teacher_file = utils.getFileName(world.teacher_model_name,
+                                     world.dataset,
+                                     world.config['teacher_dim'],
+                                     layers=world.config['teacher_layer'],
+                                     dns_k=world.DNS_K)
+    teacher_file = str(world.de_weight) + '-' + str(world.config['decay']) + '-' +teacher_file
+    teacher_file = str(world.t_lambda_pop) + '-' + teacher_file
+    teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
+    print('-------------------------')
+    world.cprint("loaded teacher weights from")
+    print(teacher_weight_file)
+    print('-------------------------')
+    teacher_config = utils.getTeacherConfig(world.config)
+    world.cprint('teacher')
+    teacher_model = register.MODELS[world.teacher_model_name](teacher_config,
+                                                      dataset,
+                                                      fix=True)
+    teacher_model.eval()
+    utils.load(teacher_model, teacher_weight_file)
+    # ----------------------------------------------------------------------------
+
+    # ----------------------------------------------------------------------------
+    # loading student
+    world.cprint('student')
+    if world.SAMPLE_METHOD == 'DE_RRD':
+        student_model = register.MODELS['lep'](world.config, dataset, teacher_model)
+    elif world.SAMPLE_METHOD == 'SD':
+        student_model = register.MODELS['newModel'](world.config, dataset, teacher_model)
+    else:
+        student_model = register.MODELS[world.model_name](world.config, dataset)
+
+    # ----------------------------------------------------------------------------
+    # to device
+    student_model = student_model.to(world.DEVICE)
+    teacher_model = teacher_model.to(world.DEVICE)
+    # if world.model_name=='ConditionalBPRMF':
+    #     student_model.set_popularity(popularity_matrix)
+    # if world.teacher_model_name == 'ConditionalBPRMF'  :
+    #     teacher_model.set_popularity(popularity_matrix)
+
+    weight1_model = TwoLinear(dataset.n_users, dataset.m_items).to(world.DEVICE)
+    weight1_optimizer = torch.optim.Adam(weight1_model.parameters(), lr=world.config['lr'],
+                                         weight_decay=world.config['decay'])
+    # ----------------------------------------------------------------------------
+    # choosing paradigms
+    print(world.distill_method)
+    procedure = register.DISTILL_TRAIN[world.distill_method]
+    sampler = register.SAMPLER[world.SAMPLE_METHOD](dataset, student_model, teacher_model,world.DNS_K)
+
+    bpr = utils.BPRLoss(student_model, world.config)
+    # ------------------
+    # ----------------------------------------------------------
+    # get names
+    file = utils.getFileName(world.model_name,
+                             world.dataset,
+                             world.config['latent_dim_rec'],
+                             layers=world.config['lightGCN_n_layers'],
+                             dns_k=world.DNS_K)
+    file = world.teacher_model_name + '-' +str(world.t_lambda_pop) + '-'+ world.SAMPLE_METHOD + '-' + str(world.config['teacher_dim']) + '-' + str(
+        world.kd_weight) + '-' + str(world.config['de_weight']) + '-' + str(world.lambda_pop) +'-'+file
+    weight_file = os.path.join(world.FILE_PATH, file)
+    print('-------------------------')
+    print(f"load and save student to {weight_file}")
+    # if world.LOAD:
+    #     utils.load(student_model, weight_file)
+    # ----------------------------------------------------------------------------
+    # training setting
+    if world.tensorboard:
+        w: SummaryWriter = SummaryWriter(
+            os.path.join(
+                world.BOARD_PATH, time.strftime(
+                    "%m-%d-%Hh-%Mm-") + f"{world.method}-{str(world.DNS_K)}-{file.split('.')[0]}-{world.comment}-DISTILL"
+            )
+        )
+    else:
+        w = None
+        world.cprint("not enable tensorflowboard")
+    earlystop = utils.EarlyStop(patience=20,
+                                model=student_model,
+                                filename=weight_file)
+    # ----------------------------------------------------------------------------
+    # test teacher
+    # cprint("[TEST Teacher]")
+    # results = Procedure.Test(dataset, teacher_model, 0, None, world.config['multicore'], valid=False)
+    # pprint(results)
+    # ----------------------------------------------------------------------------
+    # start training
+
+
+    valid_Dict = dataset.validDict
+    vaild_users = list(valid_Dict.keys())
+    groundTrue = [valid_Dict[u] for u in vaild_users]
+    try:
+        for epoch in range(world.TRAIN_epochs):
+
+            start = time.time()
+            #output_information = procedure(dataset, student_model, sampler, bpr, epoch, w=w)
+
+            weight1_scores = weight1_model.getUsersRating(
+                torch.Tensor(range(dataset.n_users)).to(world.DEVICE).long())
+            all_pop = torch.pow(torch.from_numpy(popularity_matrix),weight1_scores)
+            if world.model_name=='ConditionalBPRMF':
+                student_model.set_popularity(all_pop)
+            if world.teacher_model_name == 'ConditionalBPRMF'  :
+                teacher_model.set_popularity(all_pop)
+            aver_loss = 0
+            aver_kd = 0
+            with timer(name='sampling'):
+                S = sampler.PerSample()
+            S = torch.Tensor(S).float().to(world.DEVICE)
+            users, posItems, negItems = S[:, 0].long(), S[:, 1].long(), S[:, 2].long()
+            negItems = negItems.reshape((-1, 1))
+            users, posItems, negItems= utils.shuffle(users, posItems, negItems)
+            total_batch = len(users) // world.config['bpr_batch_size'] + 1
+            for (batch_i, (batch_users, batch_pos, batch_neg)) in enumerate(
+                    utils.minibatch(users,
+                                    posItems,
+                                    negItems,
+                                    batch_size=world.config['bpr_batch_size'])):
+                weight1_model.train()
+                #weight1 = torch.exp(weight1 / 5)  # for stable training
+
+                one_step_model = register.MODELS[world.model_name](world.config, dataset)
+                one_step_model.load_state_dict(student_model.state_dict())
+                one_step_model=one_step_model.to(world.DEVICE)
+
+                with timer(name="KD"):
+                    batch_neg, weights, KD_loss = sampler.Sample(
+                        batch_users, batch_pos, batch_neg, epoch)
+                batch_score=userAndMatrix(batch_users, batch_pos,weight1_model)
+                batch_pos_pop = torch.pow(torch.from_numpy(popularity_matrix[batch_pos]),
+                                          batch_score)
+                batch_neg_pop = torch.pow(torch.from_numpy(popularity_matrix[batch_neg]),
+                                          userAndMatrix(batch_users, batch_pos,weight1_model))
+                # formal parameter: Using training set to update parameters
+                one_step_model.train()
+                # all pair data in this block
+                loss_f, reg_loss =one_step_model.bpr_loss_pop(batch_users, batch_pos, batch_neg, batch_pos_pop,
+                                                         batch_neg_pop, weights=weights)
+                reg_loss = reg_loss *world.config['decay']
+                loss_f_all = loss_f  + KD_loss * world.kd_weight
+                loss_f_all = loss_f_all + reg_loss
+
+                # update parameters of one_step_model
+                one_step_model.zero_grad()
+                grads = torch.autograd.grad(loss_f_all, (one_step_model.params()), create_graph=True)
+                one_step_model.update_params(world.config['lr'], source_params=grads)
+
+                # latter hyper_parameter: Using uniform set to update hyper_parameters
+                samples_scores_T = userAndMatrix(vaild_users, groundTrue, teacher_model)
+                samples_scores_T*=torch.pow(torch.from_numpy(popularity_matrix[groundTrue]),
+                                          userAndMatrix(vaild_users, groundTrue,weight1_model))
+                weights = torch.sigmoid(samples_scores_T / 2)
+                y_hat_l = userAndMatrix(vaild_users, groundTrue, one_step_model)
+                loss_l = -(weights* torch.log(y_hat_l + 1e-10) +
+                        (1 - weights) * torch.log(1 - y_hat_l + 1e-10))
+
+                # update hyper-parameters
+                weight1_optimizer.zero_grad()
+                loss_l.backward()
+                weight1_optimizer.step()
+                batch_pos_pop = torch.pow(torch.from_numpy(popularity_matrix[batch_pos]),
+                                          userAndMatrix(batch_users, batch_pos,weight1_model))
+                batch_neg_pop = torch.pow(torch.from_numpy(popularity_matrix[batch_neg]),
+                                          userAndMatrix(batch_users, batch_pos,weight1_model))
+                with timer(name="BP"):
+                    cri = bpr.stageTwo(batch_users,
+                                       batch_pos,
+                                       batch_neg,
+                                       batch_pos_pop, batch_neg_pop,
+                                       add_loss=KD_loss,
+                                       weights=weights)
+                aver_loss += cri
+                aver_kd += KD_loss.cpu().item()
+                # Additional section------------------------
+                #
+                # ------------------------------------------
+                if world.tensorboard:
+                    w.add_scalar(
+                        f'BPRLoss/BPR', cri,
+                        epoch * int(len(users) / world.config['bpr_batch_size']) +
+                        batch_i)
+            aver_loss = aver_loss / total_batch
+            aver_kd = aver_kd / total_batch
+            info = f"{timer.dict()}[KD loss{aver_kd:.3e}][BPR loss{aver_loss:.3e}]"
+            timer.zero()
+
+
+
+            print(
+                f'EPOCH[{epoch}/{world.TRAIN_epochs}][{time.time() - start:.2f}] - {info}'
+            )
+            # snapshot = tracemalloc.take_snapshot()
+            # utils.display_top(snapshot)
+            print(f"    [TEST TIME] {time.time() - start}")
+            if epoch % 5 == 0:
+                start = time.time()
+                cprint("    [TEST]")
+                results = Procedure.Test(dataset, student_model, epoch, w, world.config['multicore'], valid=True)
+                pprint(results)
+                print(f"    [TEST TIME] {time.time() - start}")
+                if earlystop.step(epoch, results):
+                    print("trigger earlystop")
+                    print(f"best epoch:{earlystop.best_epoch}")
+                    print(f"best results:{earlystop.best_result}")
+                    break
+    finally:
+        if world.tensorboard:
+            w.close()
+
+    best_result = earlystop.best_result
+    torch.save(earlystop.best_model, weight_file)
+    student_model.load_state_dict(earlystop.best_model)
+    results = Procedure.Test(dataset,
+                             student_model,
+                             world.TRAIN_epochs,
+                             valid=False)
+    popularity, user_topk, r = Procedure.Popularity_Bias(dataset, student_model, valid=False)
+    metrics1 = utils.popularity_ratio(popularity, user_topk, dataset)
+
+    testDict = dataset.testDict
+    metrics2 = utils.PrecisionByGrpup(testDict, user_topk, dataset, r)
+
+    log_file = os.path.join(world.LOG_PATH, world.SAMPLE_METHOD+'-'+utils.getLogFile())
+    with open(log_file, 'a') as f:
+        f.write("#######################################\n")
+        f.write(f"{file}\n")
+        f.write(
+            f"SEED: {world.SEED}, DNS_K: {str(world.DNS_K)}, Stop at: {earlystop.best_epoch + 1}/{world.TRAIN_epochs}\n" \
+            f"flag: {file.split('.')[0]}. \nLR: {world.config['lr']}, DECAY: {world.config['decay']}\n" \
+            f"TopK: {world.topks}\n")
+        f.write(f"%%Valid%%\n{best_result}\n%%TEST%%\n{results}\n")
+        f.write(f"{metrics1}\n{metrics2}\n")
+        f.close()
+
+
+
+
+

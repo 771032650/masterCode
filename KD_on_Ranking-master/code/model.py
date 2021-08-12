@@ -8,7 +8,7 @@ import torch
 import numpy as np
 from torch import nn
 from dataloader import BasicDataset
-
+from torch.autograd import Variable
 import utils
 
 
@@ -607,8 +607,109 @@ class newModel(LightGCN):
             loss = torch.mean(torch.nn.functional.softplus(neg_scores+0.5*tea_neg_scores - pos_scores+0.5*tea_pos_scores))
             return loss, reg_loss
 
+def to_var(x, requires_grad=True):
+    if torch.cuda.is_available():
+        x = x.cuda()
+    return Variable(x, requires_grad=requires_grad)
 
-class ConditionalBPRMF(BasicModel):
+class MetaModule(BasicModel):
+    # adopted from: Adrien Ecoffet https://github.com/AdrienLE
+    def params(self):
+        for name, param in self.named_params(self):
+            yield param
+
+    def named_leaves(self):
+        return []
+
+    def named_submodules(self):
+        return []
+
+    def named_params(self, curr_module=None, memo=None, prefix=''):
+        if memo is None:
+            memo = set()
+
+        if hasattr(curr_module, 'named_leaves'):
+            for name, p in curr_module.named_leaves():
+                if p is not None and p not in memo:
+                    memo.add(p)
+                    yield prefix + ('.' if prefix else '') + name, p
+        else:
+            for name, p in curr_module._parameters.items():
+                if p is not None and p not in memo:
+                    memo.add(p)
+                    yield prefix + ('.' if prefix else '') + name, p
+
+        for mname, module in curr_module.named_children():
+            submodule_prefix = prefix + ('.' if prefix else '') + mname
+            for name, p in self.named_params(module, memo, submodule_prefix):
+                yield name, p
+
+    def update_params(self, lr_inner, first_order=False, source_params=None, detach=False):
+        if source_params is not None:
+            for tgt, src in zip(self.named_params(self), source_params):
+                name_t, param_t = tgt
+                # name_s, param_s = src
+                # grad = param_s.grad
+                # name_s, param_s = src
+                grad = src
+                if first_order:
+                    grad = to_var(grad.detach().data)
+                tmp = param_t - lr_inner * grad
+                self.set_param(self, name_t, tmp)
+        else:
+
+            for name, param in self.named_params(self):
+                if not detach:
+                    grad = param.grad
+                    if first_order:
+                        grad = to_var(grad.detach().data)
+                    tmp = param - lr_inner * grad
+                    self.set_param(self, name, tmp)
+                else:
+                    param = param.detach_()
+                    self.set_param(self, name, param)
+
+    def set_param(self, curr_mod, name, param):
+        if '.' in name:
+            n = name.split('.')
+            module_name = n[0]
+            rest = '.'.join(n[1:])
+            for name, mod in curr_mod.named_children():
+                if module_name == name:
+                    self.set_param(mod, rest, param)
+                    break
+        else:
+            setattr(curr_mod, name, param)
+
+    def detach_params(self):
+        for name, param in self.named_params(self):
+            self.set_param(self, name, param.detach())
+
+    def copy(self, other, same_var=False):
+        for name, param in other.named_params():
+            if not same_var:
+                param = to_var(param.data.clone(), requires_grad=True)
+            self.set_param(name, param)
+
+
+class MetaEmbed(MetaModule):
+    def __init__(self, dim_1, dim_2):
+        super().__init__()
+        ignore = nn.Embedding(dim_1, dim_2)
+
+        self.register_buffer('weight', to_var(ignore.weight.data, requires_grad=True))
+
+    def forward(self):
+        return self.weight
+
+    def named_leaves(self):
+        return [('weight', self.weight)]
+
+
+
+
+
+class ConditionalBPRMF(MetaModule):
     '''
     PD/PDA
     PDG/PDG-A
@@ -620,25 +721,17 @@ class ConditionalBPRMF(BasicModel):
                  init=True):
         super(ConditionalBPRMF, self).__init__()
         self.config=config
-        self.dataset=dataset
+        self.dataset = dataset
         self.num_users = self.dataset.n_users
         self.num_items = self.dataset.m_items
+        self.latent_dim=self.config['latent_dim_rec']
         self.fix=fix
-        self.weights = self.init_weights(init)
-        self._statistics_params()
+        self.init_weights(init)
 
     def init_weights(self,init):
-
-            self.latent_dim = self.config['latent_dim_rec']
-            self.n_layers = self.config['lightGCN_n_layers']
-            self.keep_prob = self.config['keep_prob']
-            self.A_split = self.config['A_split']
-            weights = dict()
+            self.embedding_user = MetaEmbed(self.num_users, self.latent_dim)
+            self.embedding_item = MetaEmbed(self.num_items, self.latent_dim)
             if init:
-                self.embedding_user = torch.nn.Embedding(
-                    num_embeddings=self.num_users, embedding_dim=self.latent_dim)
-                self.embedding_item = torch.nn.Embedding(
-                    num_embeddings=self.num_items, embedding_dim=self.latent_dim)
                 if self.config['pretrain'] == 0:
                     nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
                     nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
@@ -646,13 +739,10 @@ class ConditionalBPRMF(BasicModel):
                 else:
                     self.embedding_user.weight.data.copy_(torch.from_numpy(self.config['user_emb']))
                     self.embedding_item.weight.data.copy_(torch.from_numpy(self.config['item_emb']))
-
                     # print('use pretarined data')
-                weights['user_embedding'] = self.embedding_user.weight
-                weights['item_embedding'] = self.embedding_item.weight
+
             self.f = nn.Sigmoid()
             self.felu=nn.ELU()
-            return weights
 
     def set_popularity(self,last_popularity):
         self.last_popularity = last_popularity
@@ -673,7 +763,7 @@ class ConditionalBPRMF(BasicModel):
         rating=self.felu(rating) + 1
         #rating = torch.sigmoid(torch.relu(rating))
         #rating = torch.sigmoid(rating/2)
-        rating = rating * self.last_popularity[items]
+        rating = rating * self.last_popularity[users,items]
         #rating=torch.sigmoid(rating)
         return rating
 
@@ -719,16 +809,6 @@ class ConditionalBPRMF(BasicModel):
         return mf_loss, reg_loss
 
 
-    def _statistics_params(self):
-        # number of params
-        total_parameters = 0
-        for variable in self.weights.values():
-            shape = variable.shape  # shape is an array of tf.Dimension
-            variable_parameters = 1
-            for dim in shape:
-                variable_parameters *= dim
-            total_parameters += variable_parameters
-        print("#params: %d" % total_parameters)
 
     def bpr_loss_pop(self, users, pos_items,neg_items,pos_pops,neg_pops,weights=None):
         return  self.create_bpr_loss_with_pop_global(users, pos_items,neg_items,pos_pops,neg_pops)
@@ -958,4 +1038,114 @@ class BPRMFExpert(BPRMF):
             expert_outputs = expert_outputs.sum(2)  # batch_size x teacher_dims
             DE_loss = torch.mean(((t - expert_outputs) ** 2).sum(-1))
             return DE_loss
+
+
+class OneLinear(nn.Module):
+    """
+    linear model: r
+    """
+
+    def __init__(self, n):
+        super().__init__()
+
+        self.data_bias = nn.Embedding(n, 1)
+        self.init_embedding()
+
+    def init_embedding(self):
+        self.data_bias.weight.data *= 0.001
+
+    def forward(self, values):
+        d_bias = self.data_bias(values)
+        return d_bias.squeeze()
+
+
+
+
+class TwoLinear(nn.Module):
+    """
+    linear model: u + i + r / o
+    """
+
+    def __init__(self, n_user, n_item):
+        super().__init__()
+        self.m_items=n_item
+        self.n_users = n_user
+        self.user_bias = nn.Embedding(n_user, 1)
+        self.item_bias = nn.Embedding(n_item, 1)
+        self.init_embedding(0)
+
+    def init_embedding(self, init):
+        nn.init.kaiming_normal_(self.user_bias.weight, mode='fan_out', a=init)
+        nn.init.kaiming_normal_(self.item_bias.weight, mode='fan_out', a=init)
+
+    def forward(self, users, items):
+        u_bias = self.user_bias(users)
+        i_bias = self.item_bias(items)
+        preds = u_bias*i_bias
+        return preds.squeeze()
+
+    def getUsersRating(self, users):
+        users_emb= self.user_bias(users)
+        items = torch.Tensor(range(self.m_items)).long().to(world.DEVICE)
+        items_emb = self.item_bias(items)
+        rating = torch.matmul(users_emb, items_emb.t())
+        return rating
+
+
+class ThreeLinear(nn.Module):
+    """
+    linear model: u + i + r / o
+    """
+
+    def __init__(self, n_user, n_item, n):
+        super().__init__()
+
+        self.user_bias = nn.Embedding(n_user, 1)
+        self.item_bias = nn.Embedding(n_item, 1)
+        self.data_bias = nn.Embedding(n, 1)
+        self.init_embedding(0)
+
+    def init_embedding(self, init):
+        nn.init.kaiming_normal_(self.user_bias.weight, mode='fan_out', a=init)
+        nn.init.kaiming_normal_(self.item_bias.weight, mode='fan_out', a=init)
+        nn.init.kaiming_normal_(self.data_bias.weight, mode='fan_out', a=init)
+        self.data_bias.weight.data *= 0.001
+
+    def forward(self, users, items, values):
+        u_bias = self.user_bias(users)
+        i_bias = self.item_bias(items)
+        d_bias = self.data_bias(values)
+
+        preds = u_bias + i_bias + d_bias
+        return preds.squeeze()
+
+
+class FourLinear(nn.Module):
+    """
+    linear model: u + i + r + p
+    """
+
+    def __init__(self, n_user, n_item, n, n_position):
+        super().__init__()
+        self.user_bias = nn.Embedding(n_user, 1)
+        self.item_bias = nn.Embedding(n_item, 1)
+        self.data_bias = nn.Embedding(n, 1)
+        self.position_bias = nn.Embedding(n_position, 1)
+        self.init_embedding(0)
+
+    def init_embedding(self, init):
+        nn.init.kaiming_normal_(self.user_bias.weight, mode='fan_out', a=init)
+        nn.init.kaiming_normal_(self.item_bias.weight, mode='fan_out', a=init)
+        nn.init.kaiming_normal_(self.data_bias.weight, mode='fan_out', a=init)
+        self.data_bias.weight.data *= 0.001
+        self.position_bias.weight.data *= 0.001
+
+    def forward(self, users, items, values, positions):
+        u_bias = self.user_bias(users)
+        i_bias = self.item_bias(items)
+        d_bias = self.data_bias(values)
+        p_bias = self.position_bias(positions)
+
+        preds = u_bias + i_bias + d_bias + p_bias
+        return preds.squeeze()
 
