@@ -16,7 +16,7 @@ class BasicModel(nn.Module):
     def __init__(self):
         super(BasicModel, self).__init__()
 
-    def getUsersRating(self, users):
+    def getUsersRating(self, users,pop):
         raise NotImplementedError
 
 class PairWiseModel(BasicModel):
@@ -614,6 +614,9 @@ def to_var(x, requires_grad=True):
 
 class MetaModule(BasicModel):
     # adopted from: Adrien Ecoffet https://github.com/AdrienLE
+    def __init__( self):
+        super(MetaModule, self).__init__()
+
     def params(self):
         for name, param in self.named_params(self):
             yield param
@@ -709,7 +712,7 @@ class MetaEmbed(MetaModule):
 
 
 
-class ConditionalBPRMF(MetaModule):
+class ConditionalBPRMF(BasicModel):
     '''
     PD/PDA
     PDG/PDG-A
@@ -729,14 +732,15 @@ class ConditionalBPRMF(MetaModule):
         self.init_weights(init)
 
     def init_weights(self,init):
-            self.embedding_user = MetaEmbed(self.num_users, self.latent_dim)
-            self.embedding_item = MetaEmbed(self.num_items, self.latent_dim)
-            if init:
-                if self.config['pretrain'] == 0:
+            self.embedding_user = torch.nn.Embedding(
+                num_embeddings=self.num_users, embedding_dim=self.latent_dim)
+            self.embedding_item = torch.nn.Embedding(
+                num_embeddings=self.num_items, embedding_dim=self.latent_dim)
+            if self.config['pretrain'] == 0:
                     nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
                     nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
                     # print('use xavier initilizer')
-                else:
+            else:
                     self.embedding_user.weight.data.copy_(torch.from_numpy(self.config['user_emb']))
                     self.embedding_item.weight.data.copy_(torch.from_numpy(self.config['item_emb']))
                     # print('use pretarined data')
@@ -744,9 +748,7 @@ class ConditionalBPRMF(MetaModule):
             self.f = nn.Sigmoid()
             self.felu=nn.ELU()
 
-    def set_popularity(self,last_popularity):
-        self.last_popularity = last_popularity
-        self.last_popularity = torch.Tensor(self.last_popularity).to(world.DEVICE)
+
 
     def computer(self):
         users_emb = self.embedding_user.weight
@@ -754,16 +756,16 @@ class ConditionalBPRMF(MetaModule):
 
         return users_emb, items_emb
 
-    def getUsersRating(self, users):
+    def getUsersRating(self, users,pop):
         all_users, all_items = self.computer()
         users_emb = all_users[users]
-        items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE)
+        items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE1)
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
         rating=self.felu(rating) + 1
         #rating = torch.sigmoid(torch.relu(rating))
         #rating = torch.sigmoid(rating/2)
-        rating = rating * self.last_popularity[users,items]
+        rating = (rating * pop)
         #rating=torch.sigmoid(rating)
         return rating
 
@@ -813,37 +815,21 @@ class ConditionalBPRMF(MetaModule):
     def bpr_loss_pop(self, users, pos_items,neg_items,pos_pops,neg_pops,weights=None):
         return  self.create_bpr_loss_with_pop_global(users, pos_items,neg_items,pos_pops,neg_pops)
 
-    def forward(self, users, items):
+    def forward(self, users, items,pop):
         """
         without sigmoid
         """
         all_users, all_items = self.computer()
         users_emb = all_users[users]
         items_emb = all_items[items]
-        rating = torch.sum(users_emb * items_emb, dim=1)
+        rating = torch.sum(users_emb * items_emb, dim=-1)
         rating = self.felu(rating) + 1
         #rating = torch.sigmoid(torch.relu(rating))
         #rating = torch.sigmoid(rating/2)
-        items_pop = self.last_popularity[items]
-        rating=rating * items_pop
+        rating=rating * pop
         #rating = torch.sigmoid(rating)
         return rating
 
-    def pre_pop(self, users, items):
-        """
-        without sigmoid
-        """
-        all_users, all_items = self.computer()
-        users_emb = all_users[users]
-        items_emb = all_items[items]
-        rating = torch.sum(users_emb * items_emb, dim=1)
-        rating = self.felu(rating) + 1
-        #rating = torch.sigmoid(torch.relu(rating))
-        #rating = torch.sigmoid(rating/2)
-        items_pop = self.last_popularity[items]
-        rating=rating * items_pop
-        #rating = torch.sigmoid(rating)
-        return rating
 
 
 
@@ -855,43 +841,32 @@ class BPRMF(BasicModel):
 
     def __init__( self,config:dict,
                  dataset:BasicDataset,
-                 fix:bool = False,
-                 init=True):
+                 fix:bool = False,):
         super(BPRMF, self).__init__()
         self.config=config
         self.dataset=dataset
         self.num_users = self.dataset.n_users
         self.num_items = self.dataset.m_items
+        self.latent_dim = self.config['latent_dim_rec']
         self.fix=fix
-        self.weights = self.init_weights(init)
-        self._statistics_params()
+        self.init_weights()
 
-    def init_weights(self,init):
 
-            self.latent_dim = self.config['latent_dim_rec']
-            self.n_layers = self.config['lightGCN_n_layers']
-            self.keep_prob = self.config['keep_prob']
-            self.A_split = self.config['A_split']
-            weights = dict()
-            if init:
-                self.embedding_user = torch.nn.Embedding(
-                    num_embeddings=self.num_users, embedding_dim=self.latent_dim)
-                self.embedding_item = torch.nn.Embedding(
-                    num_embeddings=self.num_items, embedding_dim=self.latent_dim)
-                if self.config['pretrain'] == 0:
-                    nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
-                    nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
-                    # print('use xavier initilizer')
-                else:
-                    self.embedding_user.weight.data.copy_(torch.from_numpy(self.config['user_emb']))
-                    self.embedding_item.weight.data.copy_(torch.from_numpy(self.config['item_emb']))
+    def init_weights(self):
+        self.embedding_user = torch.nn.Embedding(
+            num_embeddings=self.num_users, embedding_dim=self.latent_dim)
+        self.embedding_item = torch.nn.Embedding(
+            num_embeddings=self.num_items, embedding_dim=self.latent_dim)
 
-                    # print('use pretarined data')
-                weights['user_embedding'] = self.embedding_user.weight
-                weights['item_embedding'] = self.embedding_item.weight
-            self.f = nn.Sigmoid()
-            self.felu=nn.ReLU()
-            return weights
+        if self.config['pretrain'] == 0:
+            nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
+            nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
+        else:
+            self.embedding_user.weight.data.copy_(torch.from_numpy(self.config['user_emb']))
+            self.embedding_item.weight.data.copy_(torch.from_numpy(self.config['item_emb']))
+        self.f = nn.Sigmoid()
+        self.felu=nn.ReLU()
+
     
     def computer(self):
         users_emb = self.embedding_user.weight
@@ -899,7 +874,7 @@ class BPRMF(BasicModel):
 
         return users_emb, items_emb
 
-    def getUsersRating(self, users):
+    def getUsersRating(self, users,pop):
         all_users, all_items = self.computer()
         users_emb = all_users[users]
         items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE)
@@ -917,6 +892,7 @@ class BPRMF(BasicModel):
         users_emb_ego = self.embedding_user(users)
         pos_emb_ego = self.embedding_item(pos_items)
         neg_emb_ego = self.embedding_item(neg_items)
+
         return users_emb, pos_emb, neg_emb, users_emb_ego, pos_emb_ego, neg_emb_ego
 
     def create_bpr_loss(self, users, pos_items,neg_items):
@@ -939,16 +915,6 @@ class BPRMF(BasicModel):
                               neg_emb_ego.norm(2).pow(2)) / float(len(users))
         return mf_loss, reg_loss
 
-    def _statistics_params(self):
-        # number of params
-        total_parameters = 0
-        for variable in self.weights.values():
-            shape = variable.shape  # shape is an array of tf.Dimension
-            variable_parameters = 1
-            for dim in shape:
-                variable_parameters *= dim
-            total_parameters += variable_parameters
-        print("#params: %d" % total_parameters)
 
     def bpr_loss_pop(self, users, pos_items,neg_items,pos_pops,neg_pops,weights=None):
         return  self.create_bpr_loss(users, pos_items,neg_items)
@@ -1069,27 +1035,32 @@ class TwoLinear(nn.Module):
     def __init__(self, n_user, n_item):
         super().__init__()
         self.m_items=n_item
-        self.n_users = n_user
-        self.user_bias = nn.Embedding(n_user, 1)
-        self.item_bias = nn.Embedding(n_item, 1)
+        self.user_bias = torch.nn.Embedding(
+                num_embeddings=n_user, embedding_dim=1)
+        self.item_bias = torch.nn.Embedding(
+                num_embeddings=n_item, embedding_dim=1)
         self.init_embedding(0)
 
     def init_embedding(self, init):
         nn.init.kaiming_normal_(self.user_bias.weight, mode='fan_out', a=init)
         nn.init.kaiming_normal_(self.item_bias.weight, mode='fan_out', a=init)
+        # nn.init.xavier_uniform_(self.user_bias.weight, gain=1)
+        # nn.init.xavier_uniform_(self.item_bias.weight, gain=1)
 
     def forward(self, users, items):
         u_bias = self.user_bias(users)
         i_bias = self.item_bias(items)
-        preds = u_bias*i_bias
-        return preds.squeeze()
+        preds = u_bias+i_bias
+        #preds=torch.sum(u_bias*i_bias,dim=-1)
+        return torch.relu(preds.squeeze())
 
     def getUsersRating(self, users):
         users_emb= self.user_bias(users)
-        items = torch.Tensor(range(self.m_items)).long().to(world.DEVICE)
+        items = torch.Tensor(range(self.m_items)).long().to(world.DEVICE2)
         items_emb = self.item_bias(items)
-        rating = torch.matmul(users_emb, items_emb.t())
-        return rating
+        #rating = torch.matmul(users_emb, items_emb.t())
+        rating=users_emb+items_emb
+        return torch.relu(rating)
 
 
 class ThreeLinear(nn.Module):

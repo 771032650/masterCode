@@ -88,7 +88,7 @@ def get_dataset_tot_popularity():
     popularity_matrix = popularity_matrix.astype(np.float)
     popularity_matrix += 1.0
     popularity_matrix /= popularity_matrix.sum()
-    popularity_matrix = ( popularity_matrix - popularity_matrix.min() ) / ( popularity_matrix.max() - popularity_matrix.min() )
+    #popularity_matrix = ( popularity_matrix - popularity_matrix.min() ) / ( popularity_matrix.max() - popularity_matrix.min() )
     print("popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))
     # popularity_matrix = np.power(popularity_matrix,popularity_exp)
     # print("After power,popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))
@@ -109,6 +109,28 @@ def get_popularity_from_load(item_pop_all):
 
 
 
+def Sample_DNS_python_valid(vaild_users,groundTrue):
+        """python implementation for 'UniformSample_DNS'
+        """
+
+        allPos = groundTrue
+        S = []
+        BinForUser = np.zeros(shape=(dataset.m_items,)).astype("int")
+        for user in vaild_users:
+            posForUser = allPos[user]
+            if len(posForUser) == 0:
+                continue
+            BinForUser[:] = 0
+            BinForUser[posForUser] = 1
+            NEGforUser = np.where(BinForUser == 0)[0]
+            per_user_num = len(posForUser)
+            for i in range(per_user_num):
+                positem = posForUser[i]
+                negindex = np.random.randint(0, len(NEGforUser), size=(1,))
+                negitems = NEGforUser[negindex]
+                add_pair = [user, positem, negitems]
+                S.append(add_pair)
+        return S
 
 if __name__ == '__main__':
     # random.seed(123)
@@ -148,8 +170,8 @@ if __name__ == '__main__':
     print("   each stage mean:", popularity_matrix.mean(axis=0))
     print("   each stage max:", popularity_matrix.max(axis=0))
     print("   each stage min:", popularity_matrix.min(axis=0))
+    popularity_matrix=torch.from_numpy(popularity_matrix).float()
     dataset.add_expo_popularity(popularity_matrix)
-
     # loading teacher
     teacher_file = utils.getFileName(world.teacher_model_name,
                                      world.dataset,
@@ -185,7 +207,7 @@ if __name__ == '__main__':
     # ----------------------------------------------------------------------------
     # to device
     student_model = student_model.to(world.DEVICE)
-    teacher_model = teacher_model.to(world.DEVICE)
+    teacher_model = teacher_model.to(world.DEVICE1)
     # if world.model_name=='ConditionalBPRMF':
     #     student_model.set_popularity(popularity_matrix)
     # if world.teacher_model_name == 'ConditionalBPRMF'  :
@@ -194,13 +216,19 @@ if __name__ == '__main__':
     weight1_model = TwoLinear(dataset.n_users, dataset.m_items).to(world.DEVICE)
     weight1_optimizer = torch.optim.Adam(weight1_model.parameters(), lr=world.config['lr'],
                                          weight_decay=world.config['decay'])
+    one_step_model = register.MODELS[world.model_name](world.config, dataset).to(world.DEVICE)
+    one_step_model_optimizer = torch.optim.Adam(one_step_model.parameters(), lr=world.config['lr'],
+                                         weight_decay=world.config['decay'])
+    student_model_optimizer = torch.optim.Adam(student_model.parameters(), lr=world.config['lr'],
+                                                weight_decay=world.config['decay'])
     # ----------------------------------------------------------------------------
     # choosing paradigms
     print(world.distill_method)
     procedure = register.DISTILL_TRAIN[world.distill_method]
-    sampler = register.SAMPLER[world.SAMPLE_METHOD](dataset, student_model, teacher_model,world.DNS_K)
 
-    bpr = utils.BPRLoss(student_model, world.config)
+    sampler = register.SAMPLER[world.SAMPLE_METHOD](dataset=dataset, student=student_model,teacher=teacher_model,weight_model=weight1_model,one_step_model=one_step_model,dns=world.DNS_K)
+
+    #bpr = utils.BPRLoss(student_model, world.config)
     # ------------------
     # ----------------------------------------------------------
     # get names
@@ -243,99 +271,145 @@ if __name__ == '__main__':
     valid_Dict = dataset.validDict
     vaild_users = list(valid_Dict.keys())
     groundTrue = [valid_Dict[u] for u in vaild_users]
+    vaild_S=Sample_DNS_python_valid(vaild_users,groundTrue)
+    vaild_S = torch.Tensor(vaild_S).long()
+    vaild_users, vaild_posItems, vaild_negItems = vaild_S[:, 0], vaild_S[:, 1], vaild_S[:, 2]
+
+
     try:
         for epoch in range(world.TRAIN_epochs):
 
             start = time.time()
             #output_information = procedure(dataset, student_model, sampler, bpr, epoch, w=w)
 
-            weight1_scores = weight1_model.getUsersRating(
-                torch.Tensor(range(dataset.n_users)).to(world.DEVICE).long())
-            all_pop = torch.pow(torch.from_numpy(popularity_matrix),weight1_scores)
-            if world.model_name=='ConditionalBPRMF':
-                student_model.set_popularity(all_pop)
-            if world.teacher_model_name == 'ConditionalBPRMF'  :
-                teacher_model.set_popularity(all_pop)
-            aver_loss = 0
+            aver_loss_1 = 0
+            aver_loss_2 = 0
+            aver_loss_3 = 0
             aver_kd = 0
+
             with timer(name='sampling'):
                 S = sampler.PerSample()
-            S = torch.Tensor(S).float().to(world.DEVICE)
-            users, posItems, negItems = S[:, 0].long(), S[:, 1].long(), S[:, 2].long()
+            S = torch.Tensor(S).long()
+            users, posItems, negItems = S[:, 0], S[:, 1], S[:, 2]
             negItems = negItems.reshape((-1, 1))
             users, posItems, negItems= utils.shuffle(users, posItems, negItems)
             total_batch = len(users) // world.config['bpr_batch_size'] + 1
-            for (batch_i, (batch_users, batch_pos, batch_neg)) in enumerate(
-                    utils.minibatch(users,
-                                    posItems,
-                                    negItems,
-                                    batch_size=world.config['bpr_batch_size'])):
-                weight1_model.train()
-                #weight1 = torch.exp(weight1 / 5)  # for stable training
+            total_batch_1 = len(vaild_users) // world.config['bpr_batch_size'] + 1
+            # formal parameter: Using training set to update parameters
 
-                one_step_model = register.MODELS[world.model_name](world.config, dataset)
-                one_step_model.load_state_dict(student_model.state_dict())
-                one_step_model=one_step_model.to(world.DEVICE)
+            one_step_model.load_state_dict(student_model.state_dict())
+            one_step_model.train()
+            with timer(name="one_step_model"):
+                for (batch_i, (batch_users, batch_pos, batch_neg)) in enumerate(
+                        utils.minibatch(users,
+                                        posItems,
+                                        negItems,
+                                        batch_size=1024)):
 
-                with timer(name="KD"):
+                    #weight1 = torch.exp(weight1 / 5)  # for stable training
+
+                    batch_users=batch_users.to(world.DEVICE)
+                    batch_pos = batch_pos.to(world.DEVICE)
+                    batch_neg = batch_neg.to(world.DEVICE)
                     batch_neg, weights, KD_loss = sampler.Sample(
-                        batch_users, batch_pos, batch_neg, epoch)
-                batch_score=userAndMatrix(batch_users, batch_pos,weight1_model)
-                batch_pos_pop = torch.pow(torch.from_numpy(popularity_matrix[batch_pos]),
-                                          batch_score)
-                batch_neg_pop = torch.pow(torch.from_numpy(popularity_matrix[batch_neg]),
-                                          userAndMatrix(batch_users, batch_pos,weight1_model))
-                # formal parameter: Using training set to update parameters
-                one_step_model.train()
-                # all pair data in this block
-                loss_f, reg_loss =one_step_model.bpr_loss_pop(batch_users, batch_pos, batch_neg, batch_pos_pop,
-                                                         batch_neg_pop, weights=weights)
-                reg_loss = reg_loss *world.config['decay']
-                loss_f_all = loss_f  + KD_loss * world.kd_weight
-                loss_f_all = loss_f_all + reg_loss
+                            batch_users, batch_pos, batch_neg, epoch,one_step=1)
 
-                # update parameters of one_step_model
-                one_step_model.zero_grad()
-                grads = torch.autograd.grad(loss_f_all, (one_step_model.params()), create_graph=True)
-                one_step_model.update_params(world.config['lr'], source_params=grads)
+                    # batch_pos_pop = torch.pow(popularity_matrix[batch_pos].to(world.DEVICE),
+                    #                           weight1_model(batch_users, batch_pos))
+                    # batch_neg_pop = torch.pow(popularity_matrix[batch_neg].to(world.DEVICE),
+                    #                           weight1_model(batch_users, batch_neg))
 
-                # latter hyper_parameter: Using uniform set to update hyper_parameters
-                samples_scores_T = userAndMatrix(vaild_users, groundTrue, teacher_model)
-                samples_scores_T*=torch.pow(torch.from_numpy(popularity_matrix[groundTrue]),
-                                          userAndMatrix(vaild_users, groundTrue,weight1_model))
-                weights = torch.sigmoid(samples_scores_T / 2)
-                y_hat_l = userAndMatrix(vaild_users, groundTrue, one_step_model)
-                loss_l = -(weights* torch.log(y_hat_l + 1e-10) +
-                        (1 - weights) * torch.log(1 - y_hat_l + 1e-10))
-
-                # update hyper-parameters
-                weight1_optimizer.zero_grad()
-                loss_l.backward()
-                weight1_optimizer.step()
-                batch_pos_pop = torch.pow(torch.from_numpy(popularity_matrix[batch_pos]),
-                                          userAndMatrix(batch_users, batch_pos,weight1_model))
-                batch_neg_pop = torch.pow(torch.from_numpy(popularity_matrix[batch_neg]),
-                                          userAndMatrix(batch_users, batch_pos,weight1_model))
-                with timer(name="BP"):
-                    cri = bpr.stageTwo(batch_users,
-                                       batch_pos,
-                                       batch_neg,
-                                       batch_pos_pop, batch_neg_pop,
-                                       add_loss=KD_loss,
-                                       weights=weights)
-                aver_loss += cri
-                aver_kd += KD_loss.cpu().item()
-                # Additional section------------------------
+                    # all pair data in this block
+                    loss_f, reg_loss =one_step_model.bpr_loss_pop(batch_users, batch_pos, batch_neg, None,
+                                                             None, weights=weights)
+                    reg_loss = reg_loss *world.config['decay']
+                    assert KD_loss.requires_grad == True
+                    loss_f_all_one = loss_f  + KD_loss
+                    loss_f_all_one = loss_f_all_one + reg_loss
+                    one_step_model_optimizer.zero_grad()
+                    loss_f_all_one.backward()
+                    one_step_model_optimizer.step()
+                    cri = loss_f_all_one.cpu().item()
+                    aver_loss_1 += cri
+                    # update parameters of one_step_model
+                    # one_step_model.zero_grad()
+                    # grads = torch.autograd.grad(loss_f_all, (one_step_model.params()), create_graph=False)
+                    # one_step_model.update_params(world.config['lr'], source_params=grads)
                 #
-                # ------------------------------------------
-                if world.tensorboard:
-                    w.add_scalar(
-                        f'BPRLoss/BPR', cri,
-                        epoch * int(len(users) / world.config['bpr_batch_size']) +
-                        batch_i)
-            aver_loss = aver_loss / total_batch
+                #     # latter hyper_parameter: Using uniform set to update hyper_parameters
+            weight1_model.train()
+            with timer(name="weight1_model"):
+                for (batch_j, (batch_users_v, batch_pos_v, batch_neg_v)) in enumerate(
+                            utils.minibatch(vaild_users,
+                                            vaild_posItems,
+                                            vaild_negItems,
+                                            batch_size=1024)):
+
+                    batch_users_v = batch_users_v.to(world.DEVICE)
+                    batch_pos_v = batch_pos_v.to(world.DEVICE)
+                    #batch_neg_v = batch_neg_v.to(world.DEVICE1)
+                    k1=weight1_model(batch_users_v, batch_pos_v)
+                    k2 = torch.pow(popularity_matrix[batch_pos_v].to(world.DEVICE),
+                                  k1).to(world.DEVICE1)
+                    samples_scores_T = teacher_model(batch_users_v, batch_pos_v,k2).to(world.DEVICE)
+                    weights = torch.sigmoid(samples_scores_T / 2)
+                    y_hat_l = one_step_model(batch_users_v, batch_pos_v).to(world.DEVICE)
+                    y_hat_l=torch.sigmoid(y_hat_l)
+                    loss_l = -(weights* torch.log(y_hat_l + 1e-10) +
+                                (1 - weights) * torch.log(1 - y_hat_l + 1e-10))
+                    loss_l = loss_l.sum(-1).mean()
+
+
+                    # update hyper-parameters
+                    weight1_optimizer.zero_grad()
+                    loss_l.backward()
+                    weight1_optimizer.step()
+                    cri = loss_l.cpu().item()
+                    aver_loss_2 += cri
+
+            student_model.train()
+            with timer(name="student_model"):
+                for (batch_i, (batch_users, batch_pos, batch_neg)) in enumerate(
+                            utils.minibatch(users,
+                                            posItems,
+                                            negItems,
+                                            batch_size=1024)):
+
+                    batch_users = batch_users.to(world.DEVICE)
+                    batch_pos = batch_pos.to(world.DEVICE)
+                    batch_neg = batch_neg.to(world.DEVICE)
+                    batch_neg, weights, KD_loss_2 = sampler.Sample(
+                            batch_users, batch_pos, batch_neg, 100,one_step=0)
+
+                    # batch_pos_pop = torch.pow(popularity_matrix[batch_pos].to(world.DEVICE),
+                    #                           weight1_model(batch_users, batch_pos)).to(world.DEVICE1)
+                    # batch_neg_pop = torch.pow(popularity_matrix[batch_neg].to(world.DEVICE),
+                    #                           weight1_model(batch_users, batch_neg)).to(world.DEVICE1)
+                    # with timer(name="BP"):
+                    #     cri = bpr.stageTwo(batch_users,
+                    #                        batch_pos,
+                    #                        batch_neg,
+                    #                        None, None,
+                    #                        add_loss=KD_loss_2,
+                    #                        weights=weights)
+                    loss_f, reg_loss = student_model.bpr_loss_pop(batch_users, batch_pos, batch_neg, None,
+                                                                   None, weights=weights)
+                    reg_loss = reg_loss * world.config['decay']
+                    assert KD_loss_2.requires_grad == True
+                    loss_f_all = loss_f + KD_loss_2
+                    loss_f_all = loss_f_all + reg_loss
+                    student_model_optimizer.zero_grad()
+                    loss_f_all.backward()
+                    student_model_optimizer.step()
+                    cri=loss_f_all.cpu().item()
+                    aver_loss_3 += cri
+                    aver_kd += KD_loss_2.cpu().item()
+
+            aver_loss_1 = aver_loss_1 / total_batch
+            aver_loss_2 = aver_loss_3 / total_batch_1
+            aver_loss_3 = aver_loss_3 / total_batch
             aver_kd = aver_kd / total_batch
-            info = f"{timer.dict()}[KD loss{aver_kd:.3e}][BPR loss{aver_loss:.3e}]"
+            info = f"{timer.dict()}[loss_1:{aver_loss_1:.5e}][loss_2:{aver_loss_2:.5e}][BPR loss:{aver_loss_3:.5e}]"
             timer.zero()
 
 
