@@ -51,11 +51,7 @@ else:
 
 MODELS = {
     'lgn': model.LightGCN,
-    'ulgn': model.UnbaisLGN,
-    'leb': model.MyModel,
     'lep': model.BPRMFExpert,
-    'newModel':model.newModel,
-    'myModel':model.MyModel,
     'ConditionalBPRMF':model.ConditionalBPRMF,
     'BPRMF':model.BPRMF
 }
@@ -65,9 +61,9 @@ SAMPLER = {
     'RD'     : sample.RD,
     'CD'     : sample.CD,
     'DE_RRD'     : sample.RRD,
-    'TD':sample.PopularitySample,
     'SD':sample.SimpleSample,
     'UD':sample.UD,
+    'PD':sample.PD,
 }
 
 TRAIN = {

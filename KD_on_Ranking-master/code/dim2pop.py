@@ -11,7 +11,7 @@ def array(x):
 #dims=['64','128','192','256','300','350','400']
 #dims=['0.0','0.02','0.04','0.06','0.08','0.10','0.12', '0.14','0.16','0.18','0.20','0.22','0.24','0.26','0.28','0.30']
 #dims = ['5','10']
-dims = ['b-b','u-m','b-m','m-m']
+dims = ['1','2','3','4']
 # yelp_lgn = []
 amaz_mf = [{
     'precision': array([0.00318941, 0.00269134, 0.00239044]),
@@ -874,11 +874,11 @@ if __name__ == "__main__":
     #plot_bias(bias, key='APT5', title=title)
     # plot_bias(bias, key='I_KL', title=title)
     # plot_bias(bias, key='I_bin', title=title)
-    data1=pla.UD_100_10_kwai_m
+    data1=pla.UD_100_10_gowa_m_0816
     data2 = pla.UD_100_10_kwai_b
     data3 = pla.BPRMF_100_gowa
-    plot_new(data1, key='precision', title='kwai precision',co='red')
-    plot_new(data2, key='Short Head', title='kwai Short Head',co='yellow' )
+    plot_new(data1, key='precision', title='gowa precision',co='red')
+    #plot_new(data2, key='Short Head', title='kwai Short Head',co='yellow' )
     #plot_metrics_double(data1=data1,data2=data2, data3=data3,topk=1, title='gowa_MF')
     #bais=pla.BPRMF_kwai_bais
     #plot_metrics(data=data1,topk=1,title='douban_MF')

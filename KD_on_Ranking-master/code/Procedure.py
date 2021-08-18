@@ -396,7 +396,7 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
             batch_users_gpu = torch.Tensor(batch_users).long()
             batch_users_gpu = batch_users_gpu.to(world.DEVICE)
 
-            rating = Recmodel.getUsersRating(batch_users_gpu,None)
+            rating = Recmodel.getUsersRating(batch_users_gpu)
             #rating = rating.cpu()
             exclude_index = []
             exclude_items = []
@@ -510,7 +510,7 @@ def Popularity_Bias(dataset, Recmodel, valid=True,max_k=50):
             allPos = dataset.getUserPosItems(batch_users)
             batch_users_gpu = torch.Tensor(batch_users).long()
             batch_users_gpu = batch_users_gpu.to(world.DEVICE)
-            rating = Recmodel.getUsersRating(batch_users_gpu,None)
+            rating = Recmodel.getUsersRating(batch_users_gpu)
             rating = rating.cpu()
             exclude_index = []
             exclude_items = []

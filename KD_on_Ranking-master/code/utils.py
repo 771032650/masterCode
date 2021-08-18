@@ -64,7 +64,10 @@ class BPRLoss:
         reg_loss = reg_loss * self.weight_decay
         if add_loss is not None:
             assert add_loss.requires_grad == True
-            loss = loss*world.loss_weight + add_loss*world.kd_weight
+            if world.SAMPLE_METHOD != 'DE_RRD':
+                loss = loss * world.loss_weight + add_loss * world.kd_weight
+            else:
+                loss = loss + add_loss
         loss = loss + reg_loss
         self.opt.zero_grad()
         loss.backward()
@@ -432,7 +435,7 @@ def popularity_ratio(pop_model: np.ndarray, pop_model_user: np.ndarray,
         dict: {"I_ratio""float, "I_KL":float, "I_gini":float, "APT":[], "I_bin": float}
     """
 
-    pop_dataset= dataset.expo_popularity
+    pop_dataset= dataset.itemCount()
     assert len(pop_model) == len(pop_dataset)
     num_item = len(pop_dataset)
     num_interaction = pop_model.sum()
@@ -781,7 +784,7 @@ def split_item_popularity(pop_item,n):
     return mapping
 
 def PrecisionByGrpup(test_data,pre_data,dataset: Loader,r):
-    popularity = dataset.expo_popularity
+    popularity = dataset.itemCount()
     # sum_popularit = np.sum(popularity)
     # popularity = popularity / sum_popularit
     #popularity = np.power(popularity, 0.4)

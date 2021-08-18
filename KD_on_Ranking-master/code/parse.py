@@ -55,7 +55,7 @@ def parse_args():
     parser.add_argument('--one', type=int, default=0, help='leave one out')
     parser.add_argument('--embedding', type=int, default=0, help='enable embedding distillation')
     parser.add_argument('--sampler', type=str, default='UD')
-    parser.add_argument('--num_expert', type=int, default=5)
+    parser.add_argument('--num_expert', type=int, default=3)
     parser.add_argument('--de_loss', type=int, default=0)
     parser.add_argument('--de_weight', type=float, default=3.0)
     parser.add_argument('--kd_weight', type=float, default=1.0)

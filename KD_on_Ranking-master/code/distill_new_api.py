@@ -150,7 +150,7 @@ if __name__ == '__main__':
                                      world.config['teacher_dim'],
                                      layers=world.config['teacher_layer'],
                                      dns_k=world.DNS_K)
-    teacher_file = str(world.de_weight) + '-' + str(world.config['decay']) + '-' +teacher_file
+    teacher_file = str(3.0) + '-' + str(world.config['decay']) + '-' +teacher_file
     teacher_file = str(world.t_lambda_pop) + '-' + teacher_file
     teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
     print('-------------------------')

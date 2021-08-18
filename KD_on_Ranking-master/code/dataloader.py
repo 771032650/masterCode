@@ -5,6 +5,8 @@ Every dataset's index has to start at 0
 """
 import os
 import sys
+from math import ceil
+
 import torch
 import world
 import numpy as np
@@ -89,9 +91,11 @@ class Loader(BasicDataset):
         trainUniqueUsers, trainItem, trainUser = [], [], []
         validUniqueUsers, validItem, validUser = [], [], []
         testUniqueUsers, testItem, testUser = [], [], []
+        valid2UniqueUsers, valid2Item, valid2User = [], [], []
         self.__trainsize = 0
         self.validDataSize = 0
         self.testDataSize = 0
+        self.valid2DataSize = 0
 
         with open(train_file) as f:
             for l in f.readlines():
@@ -100,14 +104,22 @@ class Loader(BasicDataset):
                     items = [int(i) for i in l[1:]]
                     uid = int(l[0])
                     trainUniqueUsers.append(uid)
-                    trainUser.extend([uid] * len(items))
-                    trainItem.extend(items)
+                    len1=ceil(len(items)*0.8)
+                    len2=len(items)-len1
+                    trainUser.extend([uid] * len1)
+                    trainItem.extend(items[:len1])
+                    valid2User.extend([uid]*len2)
+                    valid2Item.extend(items[len1:])
                     self.__m_items = max(self.__m_items, max(items))
                     self.__n_users = max(self.__n_users, uid)
-                    self.__trainsize += len(items)
+                    self.__trainsize += len(items[:len1])
+                    self.valid2DataSize+=len2
         self.trainUniqueUsers = np.array(trainUniqueUsers)
         self.trainUser = np.array(trainUser)
         self.trainItem = np.array(trainItem)
+        self.valid2UniqueUsers = np.array(trainUniqueUsers)
+        self.valid2User = np.array(valid2User)
+        self.valid2Item = np.array(valid2Item)
 
         with open(valid_file) as f:
             for l in f.readlines():
@@ -163,7 +175,7 @@ class Loader(BasicDataset):
         print(f"{self.validDataSize} interactions for training")
         print(f"{self.testDataSize} interactions for testing")
         print(
-            f"{world.dataset} Sparsity : {(self.trainDataSize + self.validDataSize + self.testDataSize) / self.n_users / self.m_items}"
+            f"{world.dataset} Sparsity : {(self.trainDataSize + self.validDataSize + self.testDataSize+self.valid2DataSize ) / self.n_users / self.m_items}"
         )
 
         # (users,items), bipartite graph
@@ -175,6 +187,7 @@ class Loader(BasicDataset):
         self.__allPos = self.getUserPosItems(list(range(self.__n_users)))
         self.__testDict = self.build_dict(self.testUser, self.testItem)
         self.__validDict = self.build_dict(self.validUser, self.validItem)
+        self.__valid2Dict = self.build_dict(self.valid2User, self.valid2Item)
         if world.ALLDATA:
             self.UserItemNet = csr_matrix(
                 (np.ones(len(self._trainUser)),

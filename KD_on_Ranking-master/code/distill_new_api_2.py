@@ -10,9 +10,13 @@ import Procedure
 
 from utils import timer
 
-from model import TwoLinear, ConditionalBPRMF
+from model import TwoLinear, ConditionalBPRMF,OneLinear,ZeroLinear
 
 from sample import userAndMatrix
+
+from Procedure import test_one_batch
+
+import model
 
 print('*** Current working path ***')
 print(os.getcwd())
@@ -131,6 +135,83 @@ def Sample_DNS_python_valid(vaild_users,groundTrue):
                 add_pair = [user, positem, negitems]
                 S.append(add_pair)
         return S
+def weight_test(dataset,Recmodel,valid):
+    """evaluate models
+
+        Args:
+            dataset (BasicDatset): defined in dataloader.BasicDataset, loaded in register.py
+            Recmodel (PairWiseModel):
+            epoch (int):
+            w (SummaryWriter, optional): Tensorboard writer
+            multicore (int, optional): The num of cpu cores for testing. Defaults to 0.
+
+        Returns:
+            dict: summary of metrics
+        """
+    u_batch_size = world.config['test_u_batch_size']
+    dataset: utils.BasicDataset
+    testDict: dict
+    if valid:
+        testDict = dataset.validDict
+    else:
+        testDict = dataset.testDict
+    Recmodel: model.LightGCN
+    # eval mode with no dropout
+    Recmodel.eval()
+    max_K = max(world.topks)
+
+    with torch.no_grad():
+        users = list(testDict.keys())
+        users_list = []
+        rating_list = []
+        groundTrue_list = []
+        # ratings = []
+        total_batch = len(users) // u_batch_size + 1
+        for batch_users in utils.minibatch(users, batch_size=u_batch_size):
+            allPos = dataset.getUserPosItems(batch_users)
+            groundTrue = [testDict[u] for u in batch_users]
+            batch_users_gpu = torch.Tensor(batch_users).long()
+            batch_users_gpu = batch_users_gpu.to(world.DEVICE)
+
+            rating = Recmodel.getUsersRating(batch_users_gpu)
+            # rating = rating.cpu()
+            exclude_index = []
+            exclude_items = []
+            if not world.TESTDATA:
+                for range_i, items in enumerate(allPos):
+                    exclude_index.extend([range_i] * len(items))
+                    exclude_items.extend(items)
+                rating[exclude_index, exclude_items] = -1e10
+            _, rating_K = torch.topk(rating, k=max_K)
+            del rating
+            users_list.append(batch_users)
+            rating_list.append(rating_K.cpu())
+            groundTrue_list.append(groundTrue)
+        assert total_batch == len(users_list)
+        X = zip(rating_list, groundTrue_list)
+
+        results = {
+                'precision': np.zeros(len(world.topks)),
+                'recall': np.zeros(len(world.topks)),
+                'ndcg': np.zeros(len(world.topks)),
+                # 'dcg': np.zeros(len(world.topks))
+        }
+
+        pre_results = []
+        for x in X:
+                pre_results.append(test_one_batch(x))
+        scale = float(u_batch_size / len(users))
+        for result in pre_results:
+                results['recall'] += result['recall']
+                results['precision'] += result['precision']
+                results['ndcg'] += result['ndcg']
+                # results['dcg'] += result['dcg']
+        results['recall'] /= float(len(users))
+        results['precision'] /= float(len(users))
+        results['ndcg'] /= float(len(users))
+
+        return results
+
 
 if __name__ == '__main__':
     # random.seed(123)
@@ -170,7 +251,7 @@ if __name__ == '__main__':
     print("   each stage mean:", popularity_matrix.mean(axis=0))
     print("   each stage max:", popularity_matrix.max(axis=0))
     print("   each stage min:", popularity_matrix.min(axis=0))
-    popularity_matrix=torch.from_numpy(popularity_matrix).float()
+    popularity_matrix=torch.from_numpy(popularity_matrix).float().to(world.DEVICE)
     dataset.add_expo_popularity(popularity_matrix)
     # loading teacher
     teacher_file = utils.getFileName(world.teacher_model_name,
@@ -213,14 +294,12 @@ if __name__ == '__main__':
     # if world.teacher_model_name == 'ConditionalBPRMF'  :
     #     teacher_model.set_popularity(popularity_matrix)
 
-    weight1_model = TwoLinear(dataset.n_users, dataset.m_items).to(world.DEVICE)
-    weight1_optimizer = torch.optim.Adam(weight1_model.parameters(), lr=world.config['lr'],
-                                         weight_decay=world.config['decay'])
+    #weight1_model = TwoLinear(dataset.n_users,dataset.m_items).to(world.DEVICE)
+    weight1_model = ZeroLinear().to(world.DEVICE)
+    weight1_optimizer = torch.optim.Adam(weight1_model.parameters(), lr=0.01)
     one_step_model = register.MODELS[world.model_name](world.config, dataset).to(world.DEVICE)
-    one_step_model_optimizer = torch.optim.Adam(one_step_model.parameters(), lr=world.config['lr'],
-                                         weight_decay=world.config['decay'])
-    student_model_optimizer = torch.optim.Adam(student_model.parameters(), lr=world.config['lr'],
-                                                weight_decay=world.config['decay'])
+    one_step_model_optimizer = torch.optim.Adam(one_step_model.parameters(), lr=0.001)
+    student_model_optimizer = torch.optim.Adam(student_model.parameters(), lr=0.001)
     # ----------------------------------------------------------------------------
     # choosing paradigms
     print(world.distill_method)
@@ -338,34 +417,55 @@ if __name__ == '__main__':
                 #
                 #     # latter hyper_parameter: Using uniform set to update hyper_parameters
             weight1_model.train()
-            with timer(name="weight1_model"):
-                for (batch_j, (batch_users_v, batch_pos_v, batch_neg_v)) in enumerate(
-                            utils.minibatch(vaild_users,
-                                            vaild_posItems,
-                                            vaild_negItems,
-                                            batch_size=1024)):
+            if epoch%1==0:
+                with timer(name="weight1_model"):
+                    for (batch_j, (batch_users_v, batch_pos_v, batch_neg_v)) in enumerate(
+                                utils.minibatch(vaild_users,
+                                                vaild_posItems,
+                                                vaild_negItems,
+                                                batch_size=len(vaild_posItems))):
 
-                    batch_users_v = batch_users_v.to(world.DEVICE)
-                    batch_pos_v = batch_pos_v.to(world.DEVICE)
-                    #batch_neg_v = batch_neg_v.to(world.DEVICE1)
-                    k1=weight1_model(batch_users_v, batch_pos_v)
-                    k2 = torch.pow(popularity_matrix[batch_pos_v].to(world.DEVICE),
-                                  k1).to(world.DEVICE1)
-                    samples_scores_T = teacher_model(batch_users_v, batch_pos_v,k2).to(world.DEVICE)
-                    weights = torch.sigmoid(samples_scores_T / 2)
-                    y_hat_l = one_step_model(batch_users_v, batch_pos_v).to(world.DEVICE)
-                    y_hat_l=torch.sigmoid(y_hat_l)
-                    loss_l = -(weights* torch.log(y_hat_l + 1e-10) +
-                                (1 - weights) * torch.log(1 - y_hat_l + 1e-10))
-                    loss_l = loss_l.sum(-1).mean()
+                        batch_users_v = batch_users_v.to(world.DEVICE)
+                        batch_pos_v = batch_pos_v.to(world.DEVICE)
+                        #batch_neg_v = batch_neg_v.to(world.DEVICE1)
+                        #k1=weight1_model(batch_users_v, batch_pos_v)
+                        k1 = weight1_model()
+                        k2 = torch.pow(popularity_matrix[batch_pos_v].to(world.DEVICE),
+                                    k1).to(world.DEVICE1)
+                        samples_scores_T = teacher_model(batch_users_v, batch_pos_v,k2).to(world.DEVICE)
+                        weights = torch.sigmoid(samples_scores_T/2)
+                        y_hat_l = one_step_model(batch_users_v, batch_pos_v).to(world.DEVICE)
+                        y_hat_l=torch.sigmoid(y_hat_l)
+                        loss_l_p = -(weights* torch.log(y_hat_l + 1e-10) +
+                                     (1 - weights) * torch.log(1 - y_hat_l + 1e-10))
+                        #loss_l_p = -(weights * torch.log(y_hat_l + 1e-10))
+                        loss_l_p = loss_l_p.sum(-1).mean()
 
 
-                    # update hyper-parameters
-                    weight1_optimizer.zero_grad()
-                    loss_l.backward()
-                    weight1_optimizer.step()
-                    cri = loss_l.cpu().item()
-                    aver_loss_2 += cri
+
+
+                        batch_neg_v = batch_neg_v.to(world.DEVICE)
+                        # batch_neg_v = batch_neg_v.to(world.DEVICE1)
+                        #k1= weight1_model(batch_users_v, batch_neg_v)
+                        k1 = weight1_model()
+                        k2 = torch.pow(popularity_matrix[batch_neg_v].to(world.DEVICE),
+                                       k1).to(world.DEVICE1)
+                        samples_scores_T = teacher_model(batch_users_v, batch_neg_v, k2).to(world.DEVICE)
+                        weights = torch.sigmoid(samples_scores_T/2)
+                        y_hat_l = one_step_model(batch_users_v, batch_neg_v).to(world.DEVICE)
+                        y_hat_l = torch.sigmoid(y_hat_l)
+                        loss_l_n = -((1 - weights) * torch.log(y_hat_l + 1e-10) +
+                                   weights * torch.log(1 - y_hat_l + 1e-10))
+                        #loss_l_n=-((1 - weights) * torch.log(1 - y_hat_l + 1e-10))
+                        loss_l_n = loss_l_n.sum(-1).mean()
+                        print(batch_j)
+                        print(weight1_model.getUsersRating())
+                        loss_l_a=loss_l_p+loss_l_n
+                        weight1_optimizer.zero_grad()
+                        loss_l_a.backward()
+                        weight1_optimizer.step()
+                        cri = loss_l_a.cpu().item()
+                        aver_loss_2 += cri
 
             student_model.train()
             with timer(name="student_model"):
