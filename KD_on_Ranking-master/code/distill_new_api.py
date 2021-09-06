@@ -117,7 +117,6 @@ if __name__ == '__main__':
     # print("data size:",sys.getsizeof(data)/(10**6),"GB")
     # # ----------  important parameters -------------------------
     popularity_exp = world.lambda_pop
-    t_popularity_exp = 0.0
     print("----- popularity_exp : ",popularity_exp)
     # test_batch_size = min(1024,args.batch_size)
 
@@ -150,7 +149,7 @@ if __name__ == '__main__':
                                      world.config['teacher_dim'],
                                      layers=world.config['teacher_layer'],
                                      dns_k=world.DNS_K)
-    teacher_file = str(3.0) + '-' + str(world.config['decay']) + '-' +teacher_file
+    teacher_file = str(world.de_weight) + '-' + str(world.config['decay']) + '-' +teacher_file
     teacher_file = str(world.t_lambda_pop) + '-' + teacher_file
     teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
     print('-------------------------')

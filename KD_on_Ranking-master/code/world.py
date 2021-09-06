@@ -12,15 +12,15 @@ import sys
 
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-ROOT_PATH = '..'
-CODE_PATH = os.path.join(ROOT_PATH, 'code')
-FILE_PATH = os.path.join(CODE_PATH, 'checkpoints')
-BOARD_PATH = os.path.join(CODE_PATH, 'runs')
-#DATA_PATH = os.path.join(ROOT_PATH, 'data')
-DATA_PATH = ROOT_PATH+'/data'
-LOG_PATH = os.path.join(ROOT_PATH, 'log')
-
-sys.path.append(os.path.join(CODE_PATH, 'sources'))
+# ROOT_PATH = '..'
+# CODE_PATH = os.path.join(ROOT_PATH, 'code')
+# FILE_PATH = os.path.join(CODE_PATH, 'checkpoints')
+# BOARD_PATH = os.path.join(CODE_PATH, 'runs')
+# #DATA_PATH = os.path.join(ROOT_PATH, 'data')
+# DATA_PATH = ROOT_PATH+'/data'
+# LOG_PATH = os.path.join(ROOT_PATH, 'log')
+#
+# sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
 # ROOT_PATH = '/gdata1/chengang/KD'
 # CODE_PATH = os.path.join('/ghome/chengang/KD', 'code')
@@ -32,15 +32,15 @@ sys.path.append(os.path.join(CODE_PATH, 'sources'))
 #
 # sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
-# ROOT_PATH = '/data/chengang/KD'
-# CODE_PATH = os.path.join('/home/chengang/KD', 'code')
-# FILE_PATH = os.path.join('/data/chengang/KD', 'checkpoints')
-# BOARD_PATH = os.path.join('/data/chengang/KD', 'runs')
-# #DATA_PATH = os.path.join(ROOT_PATH, 'data')
-# DATA_PATH = ROOT_PATH+'/data'
-# LOG_PATH = os.path.join('/data/chengang/KD', 'log')
-#
-# sys.path.append(os.path.join(CODE_PATH, 'sources'))
+ROOT_PATH = '/data/chengang/KD'
+CODE_PATH = os.path.join('/home/chengang/KD', 'code')
+FILE_PATH = os.path.join('/data/chengang/KD', 'checkpoints')
+BOARD_PATH = os.path.join('/data/chengang/KD', 'runs')
+#DATA_PATH = os.path.join(ROOT_PATH, 'data')
+DATA_PATH = ROOT_PATH+'/data'
+LOG_PATH = os.path.join('/data/chengang/KD', 'log')
+
+sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
 args = parse_args()
 ARGS = args
@@ -73,8 +73,12 @@ config['teacher_model'] = args.teacher_model
 config['num_expert'] = args.num_expert
 config['de_loss'] = args.de_loss
 config['de_weight'] = args.de_weight
+config['mate_decay_1'] = args.mate_decay_1
+config['mate_decay_2'] = args.mate_decay_2
+config['mate_lr'] = args.mate_lr
 kd_weight=args.kd_weight
 de_weight=args.de_weight
+mate_model=args.mate_model
 if SAMPLE_METHOD=='RD':
     loss_weight=1-kd_weight
 else:

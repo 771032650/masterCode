@@ -492,7 +492,7 @@ def to_var(x, requires_grad=True):
 
 class MetaModule(BasicModel):
     # adopted from: Adrien Ecoffet https://github.com/AdrienLE
-    def __init__( self):
+    def __init__(self):
         super(MetaModule, self).__init__()
 
     def params(self):
@@ -580,6 +580,7 @@ class MetaEmbed(MetaModule):
 
         self.register_buffer('weight', to_var(ignore.weight.data, requires_grad=True))
 
+
     def forward(self):
         return self.weight
 
@@ -590,7 +591,7 @@ class MetaEmbed(MetaModule):
 
 
 
-class ConditionalBPRMF(BasicModel):
+class ConditionalBPRMF(MetaModule):
     '''
     PD/PDA
     PDG/PDG-A
@@ -610,21 +611,19 @@ class ConditionalBPRMF(BasicModel):
         self.init_weights(init)
 
     def init_weights(self,init):
-            self.embedding_user = torch.nn.Embedding(
-                num_embeddings=self.num_users, embedding_dim=self.latent_dim)
-            self.embedding_item = torch.nn.Embedding(
-                num_embeddings=self.num_items, embedding_dim=self.latent_dim)
-            if self.config['pretrain'] == 0:
-                    nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
-                    nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
-                    # print('use xavier initilizer')
-            else:
-                    self.embedding_user.weight.data.copy_(torch.from_numpy(self.config['user_emb']))
-                    self.embedding_item.weight.data.copy_(torch.from_numpy(self.config['item_emb']))
-                    # print('use pretarined data')
+        self.embedding_user = MetaEmbed(self.num_users, self.latent_dim)
+        self.embedding_item = MetaEmbed(self.num_items, self.latent_dim)
+        # self.embedding_user = torch.nn.Embedding(
+        #     num_embeddings=self.num_users, embedding_dim=self.latent_dim)
+        # self.embedding_item = torch.nn.Embedding(
+        #     num_embeddings=self.num_items, embedding_dim=self.latent_dim)
+        # nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
+        # nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
+        nn.init.kaiming_normal_(self.embedding_user.weight, mode='fan_out', a=0)
+        nn.init.kaiming_normal_(self.embedding_item.weight, mode='fan_out', a=0)
 
-            self.f = nn.Sigmoid()
-            self.felu=nn.ELU()
+        self.f = nn.Sigmoid()
+        self.felu=nn.ELU()
 
     def set_popularity(self, last_popularity):
         self.last_popularity = last_popularity
@@ -645,19 +644,31 @@ class ConditionalBPRMF(BasicModel):
         rating=self.felu(rating) + 1
         #rating = torch.sigmoid(torch.relu(rating))
         #rating = torch.sigmoid(rating/2)
-        rating = (rating * self.last_popularity)
+        rating = (rating * self.last_popularity[items])
         #rating=torch.sigmoid(rating)
         return rating
 
     def getEmbedding(self, users, pos_items, neg_items):
+        # all_users, all_items = self.computer()
+        # users_emb = all_users[users]
+        # pos_emb = all_items[pos_items]
+        # neg_emb = all_items[neg_items]
+        # users_emb_ego = self.embedding_user(users)
+        # pos_emb_ego = self.embedding_item(pos_items)
+        # neg_emb_ego = self.embedding_item(neg_items)
+        # return users_emb,pos_emb,neg_emb,users_emb_ego, pos_emb_ego, neg_emb_ego
+
         all_users, all_items = self.computer()
         users_emb = all_users[users]
         pos_emb = all_items[pos_items]
         neg_emb = all_items[neg_items]
-        users_emb_ego = self.embedding_user(users)
-        pos_emb_ego = self.embedding_item(pos_items)
-        neg_emb_ego = self.embedding_item(neg_items)
-        return users_emb,pos_emb,neg_emb,users_emb_ego, pos_emb_ego, neg_emb_ego
+        # users_emb_ego = self.embedding_user(users)
+        # pos_emb_ego = self.embedding_item(pos_items)
+        # neg_emb_ego = self.embedding_item(neg_items)
+        users_emb_ego = users_emb
+        pos_emb_ego = pos_emb
+        neg_emb_ego = neg_emb
+        return users_emb, pos_emb, neg_emb, users_emb_ego, pos_emb_ego, neg_emb_ego
 
     def create_bpr_loss_with_pop_global(self, users, pos_items,
                                         neg_items,pos_pops,neg_pops):  # this global does not refer to global popularity, just a name
@@ -679,15 +690,19 @@ class ConditionalBPRMF(BasicModel):
         maxi = torch.log(self.f(pos_scores_with_pop - neg_scores_with_pop) + 1e-10)
         #self.condition_ratings = (self.felu(self.batch_ratings) + 1) * pos_pops.squeeze()
         #self.mf_loss_ori = -(torch.mean(maxi))
-        mf_loss = torch.neg(torch.mean(maxi))
+        #mf_loss = torch.neg(torch.mean(maxi))
+        mf_loss = torch.sum(torch.neg(maxi))
         # fsoft=nn.Softplus()
         # mf_loss = -torch.mean(fsoft(pos_scores_with_pop - neg_scores_with_pop))
         # regular
 
         #mf_loss = torch.mean( torch.nn.functional.softplus(neg_scores_with_pop - pos_scores_with_pop))
+        # reg_loss = (1 / 2) * (users_emb_ego.norm(2).pow(2) +
+        #                       pos_emb_ego.norm(2).pow(2) +
+        #                       neg_emb_ego.norm(2).pow(2)) / float(len(users))
         reg_loss = (1 / 2) * (users_emb_ego.norm(2).pow(2) +
                               pos_emb_ego.norm(2).pow(2) +
-                              neg_emb_ego.norm(2).pow(2)) / float(len(users))
+                              neg_emb_ego.norm(2).pow(2))
         return mf_loss, reg_loss
 
 
@@ -713,7 +728,7 @@ class ConditionalBPRMF(BasicModel):
 
 
 
-class BPRMF(BasicModel):
+class BPRMF(MetaModule):
     '''
     PD/PDA
     PDG/PDG-A
@@ -733,19 +748,20 @@ class BPRMF(BasicModel):
 
 
     def init_weights(self):
-        self.embedding_user = torch.nn.Embedding(
-            num_embeddings=self.num_users, embedding_dim=self.latent_dim)
-        self.embedding_item = torch.nn.Embedding(
-            num_embeddings=self.num_items, embedding_dim=self.latent_dim)
-
-        if self.config['pretrain'] == 0:
-            nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
-            nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
-        else:
-            self.embedding_user.weight.data.copy_(torch.from_numpy(self.config['user_emb']))
-            self.embedding_item.weight.data.copy_(torch.from_numpy(self.config['item_emb']))
+        self.embedding_user = MetaEmbed(self.num_users, self.latent_dim)
+        self.embedding_item = MetaEmbed(self.num_items, self.latent_dim)
+        # self.embedding_user = torch.nn.Embedding(
+        #     num_embeddings=self.num_users, embedding_dim=self.latent_dim)
+        # self.embedding_item = torch.nn.Embedding(
+        #     num_embeddings=self.num_items, embedding_dim=self.latent_dim)
+        # nn.init.xavier_uniform_(self.embedding_user.weight, gain=1)
+        # nn.init.xavier_uniform_(self.embedding_item.weight, gain=1)
+        nn.init.kaiming_normal_(self.embedding_user.weight, mode='fan_out', a=0)
+        nn.init.kaiming_normal_(self.embedding_item.weight, mode='fan_out', a=0)
         self.f = nn.Sigmoid()
         self.felu=nn.ReLU()
+
+
 
     
     def computer(self):
@@ -769,10 +785,12 @@ class BPRMF(BasicModel):
         users_emb = all_users[users]
         pos_emb = all_items[pos_items]
         neg_emb = all_items[neg_items]
-        users_emb_ego = self.embedding_user(users)
-        pos_emb_ego = self.embedding_item(pos_items)
-        neg_emb_ego = self.embedding_item(neg_items)
-
+        # users_emb_ego = self.embedding_user(users)
+        # pos_emb_ego = self.embedding_item(pos_items)
+        # neg_emb_ego = self.embedding_item(neg_items)
+        users_emb_ego = users_emb
+        pos_emb_ego = pos_emb
+        neg_emb_ego =neg_emb
         return users_emb, pos_emb, neg_emb, users_emb_ego, pos_emb_ego, neg_emb_ego
 
     def create_bpr_loss(self, users, pos_items,neg_items):
@@ -786,13 +804,17 @@ class BPRMF(BasicModel):
         maxi = torch.log(self.f(pos_scores - neg_scores) + 1e-10)
         #self.condition_ratings = (self.felu(self.batch_ratings) + 1) * pos_pops.squeeze()
         #self.mf_loss_ori = -(torch.mean(maxi))
-        mf_loss = torch.neg(torch.mean(maxi))
+        #mf_loss = torch.neg(torch.mean(maxi))
+        mf_loss = torch.sum(torch.neg(maxi))
         # fsoft=nn.Softplus()
         # mf_loss = -torch.mean(fsoft(pos_scores_with_pop - neg_scores_with_pop))
         # regular
+        # reg_loss = (1 / 2) * (users_emb_ego.norm(2).pow(2) +
+        #                       pos_emb_ego.norm(2).pow(2) +
+        #                       neg_emb_ego.norm(2).pow(2)) / float(len(users))
         reg_loss = (1 / 2) * (users_emb_ego.norm(2).pow(2) +
                               pos_emb_ego.norm(2).pow(2) +
-                              neg_emb_ego.norm(2).pow(2)) / float(len(users))
+                              neg_emb_ego.norm(2).pow(2))
         return mf_loss, reg_loss
 
 
@@ -898,20 +920,31 @@ class OneLinear(nn.Module):
         self.init_embedding()
 
     def init_embedding(self):
-        self.data_bias.weight.data *= 0.001
+        nn.init.kaiming_normal_(self.data_bias.weight, mode='fan_out', a=0)
 
-    def forward(self, values):
-        d_bias = self.data_bias(values)
-        return torch.sigmoid(d_bias.squeeze())
 
-    def getUsersRating(self,user):
+    def forward(self, items):
+        d_items = self.data_bias.weight[items]
+        return torch.sigmoid(d_items.squeeze())
+
+    def getUsersRating(self):
 
         items = torch.Tensor(range(self.m_items)).long().to(world.DEVICE)
-        items_emb = self.data_bias(items)
+        items_emb = self.data_bias.weight[items]
         #rating = torch.matmul(users_emb, items_emb.t())
         #rating = torch.sum(users_emb * items_emb, dim=1)
-        return torch.sigmoid(items_emb)
+        return torch.sigmoid(items_emb.squeeze())
 
+    def l2_norm(self,items):
+        #items = torch.unique(items)
+        l2_loss = (torch.mean(self.data_bias.weight[items]** 2)) / 2
+        return l2_loss
+
+    def aver_norm(self,items):
+        #items = torch.unique(items)
+        l2_loss = (torch.mean((self.data_bias.weight[items]-torch.mean(self.data_bias.weight))** 2)) / 2
+
+        return l2_loss
 
 class TwoLinear(nn.Module):
     """
@@ -921,34 +954,50 @@ class TwoLinear(nn.Module):
     def __init__(self, n_user, n_item):
         super().__init__()
         self.m_items=n_item
-        self.user_bias_1 = torch.nn.Embedding(
-                num_embeddings=n_user, embedding_dim=1)
-        self.item_bias_1 = torch.nn.Embedding(
-                num_embeddings=n_item, embedding_dim=1)
+        self.user_embed= torch.nn.Embedding(
+                num_embeddings=n_user, embedding_dim=4)
+        self.item_embed= torch.nn.Embedding(
+                num_embeddings=n_item, embedding_dim=4)
+        self.init_embedding()
 
 
-    def init_embedding(self, init):
-        # nn.init.kaiming_normal_(self.user_bias.weight, mode='fan_out', a=init)
-        # nn.init.kaiming_normal_(self.item_bias.weight, mode='fan_out', a=init)
-        nn.init.xavier_uniform_(self.user_bias_1.weight, gain=1)
-        nn.init.xavier_uniform_(self.item_bias_1.weight, gain=1)
+    def init_embedding(self):
+        nn.init.kaiming_normal_(self.user_embed.weight, mode='fan_out', a=0)
+        nn.init.kaiming_normal_(self.item_embed.weight, mode='fan_out', a=0)
 
 
     def forward(self, users, items):
-        u_bias_1 = self.user_bias_1(users)
-        i_bias_1 = self.item_bias_1(items)
-        preds_1 = u_bias_1+i_bias_1
-        #preds=torch.sum(u_bias*i_bias,dim=-1)
+        u_embed = self.user_embed(users)
+        i_embed = self.item_embed(items)
+        preds_1 = torch.sum(u_embed+i_embed,dim=-1)
+        #preds_1 = torch.sum(u_embed * i_embed, dim=-1)
         return torch.sigmoid(preds_1.squeeze())
 
     def getUsersRating(self, users):
-        users_emb= self.user_bias_1(users)
         items = torch.Tensor(range(self.m_items)).long().to(world.DEVICE)
-        items_emb = self.item_bias_1(items)
-        #rating = torch.matmul(users_emb, items_emb.t())
-        #rating = torch.sum(users_emb * items_emb, dim=1)
-        rating=users_emb+items_emb.t()
-        return torch.sigmoid(rating)
+        dim_item = items.shape[-1]
+        users = users.reshape((-1,1)).repeat((1, dim_item))
+        u_embed= self.user_embed(users)
+        i_embed = self.item_embed(items)
+        #rating = torch.matmul(u_embed, i_embed.t())
+
+        rating = torch.sum(u_embed + i_embed, dim=-1)
+        return torch.sigmoid(rating.squeeze())
+
+    def l2_norm(self, users, items):
+        # users = torch.unique(users)
+        # items = torch.unique(items)
+
+        l2_loss = (torch.mean(torch.sum(self.user_embed.weight[users] ** 2,dim=-1) +torch.sum(self.item_embed.weight[items] ** 2,dim=-1))) / 2
+        return l2_loss
+
+    def aver_norm(self,users,items):
+        # users = torch.unique(users)
+        # items = torch.unique(items)
+        l2_loss = (torch.mean(torch.sum((self.user_embed.weight[users]-torch.mean(self.user_embed.weight,dim=0)) ** 2, dim=-1)+
+                  torch.sum((self.item_embed.weight[items]-torch.mean(self.item_embed.weight,dim=0)) ** 2, dim=-1))) / 2
+        return l2_loss
+
 
 class ZeroLinear(nn.Module):
     """
@@ -959,11 +1008,17 @@ class ZeroLinear(nn.Module):
         super().__init__()
 
         self.data_bias = nn.Embedding(1, 1)
+        #self.data_bias.weight.data *= 0.001
 
 
     def forward(self):
-        d_bias = self.data_bias(torch.tensor(0).to(world.DEVICE))
+        d_bias = self.data_bias.weight
         return torch.sigmoid(d_bias.squeeze())
+
+    def l2_norm(self):
+        data_bias_weight = self.data_bias.weight
+        l2_loss = (torch.sum(data_bias_weight ** 2)) / 2
+        return l2_loss
 
     def getUsersRating(self):
         return torch.sigmoid(self.data_bias.weight)

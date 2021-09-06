@@ -374,7 +374,7 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
     dataset: utils.BasicDataset
     testDict: dict
     if valid:
-        testDict = dataset.validDict
+        testDict = dataset.valid2Dict
     else:
         testDict = dataset.testDict
     Recmodel: model.LightGCN

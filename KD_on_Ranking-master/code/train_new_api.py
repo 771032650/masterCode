@@ -238,7 +238,7 @@ if __name__ == '__main__':
     print("   each stage min:", popularity_matrix.min(axis=0))
     dataset.add_expo_popularity(popularity_matrix)
 
-    Recmodel = register.MODELS[world.model_name](world.config, dataset,init=True)
+    Recmodel = register.MODELS[world.model_name](world.config, dataset)
     procedure = register.TRAIN[world.method]
     bpr = utils.BPRLoss(Recmodel, world.config)
     # ----------------------------------------------------------------------------

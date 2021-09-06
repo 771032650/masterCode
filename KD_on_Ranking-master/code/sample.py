@@ -575,7 +575,7 @@ class UD:
                  dataset: BasicDataset,
                  student: BasicModel,
                  teacher: BasicModel,
-                 one_step_model:BasicModel,
+
                  weight_model:torch.nn.Module,
                  dns,
                  lamda=1,
@@ -584,7 +584,7 @@ class UD:
                  t2=0):
         self.student = student
         self.teacher = teacher.eval()
-        self.one_step_model=one_step_model
+
         self.weight_model=weight_model
         self.dataset = dataset
         self.dns_k = dns
@@ -632,10 +632,14 @@ class UD:
             batch_size=1024
             rank_scores = torch.zeros(self.dataset.n_users, self.sample_num)
             rank_items = torch.zeros(self.dataset.n_users,self.sample_num)
+
+            #weight_pop = self.weight_model()
+            # weight_pop = torch.pow(self.dataset.expo_popularity, 0.1)
+            # self.teacher.set_popularity(weight_pop)
             for user in range(0, self.dataset.n_users, batch_size):
                 end = min(user + batch_size, self.dataset.n_users)
-                scores = MODEL.getUsersRating(
-                    torch.arange(user, end).to(world.DEVICE).long())
+                scores = torch.clamp(MODEL.getUsersRating(
+                    torch.arange(user, end).to(world.DEVICE).long()), min=0)
                 pos_item = self.dataset.getUserPosItems(
                     np.arange(user, end))
                 exclude_user, exclude_item = [], []
@@ -656,10 +660,10 @@ class UD:
         self.rank_samples=self.rank_samples.to(world.DEVICE).long()
 
 
-    def sample_diff(self, batch_users, batch_pos, batch_neg, epoch,one_step):
+    def sample_diff(self, batch_users, batch_pos, batch_neg, one_step_model,one_step):
         TEACHER = self.teacher
         if one_step==1:
-            STUDENT=self.one_step_model
+            STUDENT=one_step_model
         else:
             STUDENT=self.student
         dns_k = self.dns_k
@@ -675,9 +679,13 @@ class UD:
         vector_user = batch_users.repeat((dim_item, 1)).t().reshape((-1,))
         vector_item = random_samples.reshape((-1,))
         #weight_pop = self.weight_model(vector_user, vector_item,self.dataset.expo_popularity[vector_item])
-        weight_pop = self.weight_model()
-        #weight_pop=self.weight_model(vector_user, vector_item)
-        #weight_pop = self.weight_model(vector_item)
+        if world.mate_model==0:
+            weight_pop = self.weight_model()
+        elif world.mate_model==2:
+            weight_pop=self.weight_model(vector_user, vector_item)
+        else:
+            weight_pop = self.weight_model(vector_item)
+        #weight_pop=world.lambda_pop
         weight_pop=torch.pow(self.dataset.expo_popularity[vector_item],weight_pop)
         samples_scores_T=TEACHER(vector_user, vector_item,weight_pop).reshape((-1, dim_item)).to(world.DEVICE)
         #samples_scores_T=userAndMatrix(batch_users.to(world.DEVICE1), random_samples.to(world.DEVICE1), TEACHER).to(world.DEVICE)
@@ -690,10 +698,11 @@ class UD:
         UD_loss = -(weights * torch.log(inner + 1e-10) +
                         (1 - weights) * torch.log(1 - inner + 1e-10))
         #print(samples_scores_T.shape)
-        UD_loss = UD_loss.sum(-1).mean()
-
+        #UD_loss = UD_loss.sum(-1).mean()
+        UD_loss = UD_loss.sum(-1).sum()
+        #UD_loss = UD_loss.sum(-1)
         #print(UD_loss)
-        return negitems, None, UD_loss
+        return negitems, None, UD_loss,vector_item,vector_user
 
     def student_guide(self, batch_users, batch_pos, batch_neg, epoch):
         pass
@@ -809,7 +818,7 @@ class PD:
         UD_loss = -(weights * torch.log(inner + 1e-10) +
                         (1 - weights) * torch.log(1 - inner + 1e-10))
         #print(samples_scores_T.shape)
-        UD_loss = UD_loss.sum(1).mean()
+        UD_loss = UD_loss.sum(-1).sum()
 
         #print(UD_loss)
         return negitems, None, UD_loss

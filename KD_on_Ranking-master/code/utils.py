@@ -23,7 +23,8 @@ class BPRLoss:
         self.model = recmodel
         self.weight_decay = config['decay']
         self.lr = config['lr']
-        self.opt = optim.Adam(recmodel.parameters(), lr=self.lr)
+        self.opt = optim.SGD(recmodel.params(), lr=self.lr)
+        #self.opt = optim.Adam(recmodel.parameters(), lr=self.lr)
 
     def stageOne(self,
                  users,

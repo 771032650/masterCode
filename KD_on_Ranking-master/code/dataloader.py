@@ -104,7 +104,7 @@ class Loader(BasicDataset):
                     items = [int(i) for i in l[1:]]
                     uid = int(l[0])
                     trainUniqueUsers.append(uid)
-                    len1=ceil(len(items)*0.8)
+                    len1=ceil(len(items)*0.9)
                     len2=len(items)-len1
                     trainUser.extend([uid] * len1)
                     trainItem.extend(items[:len1])
@@ -172,8 +172,9 @@ class Loader(BasicDataset):
         self.Graph = None
         print(f"({self.n_users} X {self.m_items})")
         print(f"{self.trainDataSize} interactions for training")
-        print(f"{self.validDataSize} interactions for training")
+        print(f"{self.validDataSize} interactions for vailding")
         print(f"{self.testDataSize} interactions for testing")
+        print(f"{self.valid2DataSize} interactions for vailding2")
         print(
             f"{world.dataset} Sparsity : {(self.trainDataSize + self.validDataSize + self.testDataSize+self.valid2DataSize ) / self.n_users / self.m_items}"
         )
@@ -342,6 +343,10 @@ class Loader(BasicDataset):
     @property
     def validDict(self):
         return self.__validDict
+
+    @property
+    def valid2Dict(self):
+        return self.__valid2Dict
 
 
 # ----------------------------------------------------------------------------

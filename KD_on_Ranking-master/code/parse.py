@@ -14,7 +14,7 @@ def parse_args():
                         help="the layer num of lightGCN")
     parser.add_argument('--lr', type=float,default=0.001,
                         help="the learning rate")
-    parser.add_argument('--decay', type=float,default=0.001,
+    parser.add_argument('--decay', type=float,default=0.0001,
                         help="the weight decay for l2 normalizaton")
     parser.add_argument('--dropout', type=int,default=0,
                         help="using the dropout or not")
@@ -57,10 +57,14 @@ def parse_args():
     parser.add_argument('--sampler', type=str, default='UD')
     parser.add_argument('--num_expert', type=int, default=3)
     parser.add_argument('--de_loss', type=int, default=0)
-    parser.add_argument('--de_weight', type=float, default=3.0)
+    parser.add_argument('--de_weight', type=float, default=5.0)
     parser.add_argument('--kd_weight', type=float, default=1.0)
     parser.add_argument('--margin', type=int, default=100)
     parser.add_argument('--lambda_pop', type=float, default=0.02)
     parser.add_argument('--t_lambda_pop', type=float, default=0.02)
     parser.add_argument('--dataset_split', type=int, default=0)
+    parser.add_argument('--mate_model', type=int, default=2)
+    parser.add_argument('--mate_decay_1', type=float, default=1e-4)
+    parser.add_argument('--mate_decay_2', type=float, default=1e-2)
+    parser.add_argument('--mate_lr', type=float, default=1e-4)
     return parser.parse_args()
