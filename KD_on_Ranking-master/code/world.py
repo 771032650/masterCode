@@ -12,6 +12,7 @@ import sys
 
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
 # ROOT_PATH = '..'
 # CODE_PATH = os.path.join(ROOT_PATH, 'code')
 # FILE_PATH = os.path.join(CODE_PATH, 'checkpoints')
@@ -49,7 +50,8 @@ DE_EMBEDDING=args.de_loss
 SAMPLE_METHOD = args.sampler
 # print(SAMPLE_METHOD)
 # CD = False
-
+#os.environ['CUDA_VISIBLE_DEVICE']=args.GPU
+#print(torch.cuda.current_device())
 config = {}
 all_dataset = ['lastfm', 'gowalla', 'yelp2018', 'amazon']
 all_models = ['mf', 'lgn','newModel','ulgn','myModel','ConditionalBPRMF','BPRMF']
@@ -76,6 +78,7 @@ config['de_weight'] = args.de_weight
 config['mate_decay_1'] = args.mate_decay_1
 config['mate_decay_2'] = args.mate_decay_2
 config['mate_lr'] = args.mate_lr
+config['dataset_split'] = args.dataset_split
 kd_weight=args.kd_weight
 de_weight=args.de_weight
 mate_model=args.mate_model
@@ -90,9 +93,7 @@ distill_method=args.distill_method
 if method == 'dns' and DNS_K == 1:
     method = 'original'
 
-GPU = torch.cuda.is_available()
-DEVICE = torch.device('cuda:0' if GPU else "cpu")
-DEVICE1 = torch.device('cuda:0' if GPU else "cpu")
+
 CORES = multiprocessing.cpu_count() // 2
 SEED = args.seed
 lambda_pop= args.lambda_pop

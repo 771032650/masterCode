@@ -240,21 +240,21 @@ if __name__ == '__main__':
 
     Recmodel = register.MODELS[world.model_name](world.config, dataset)
     procedure = register.TRAIN[world.method]
-    bpr = utils.BPRLoss(Recmodel, world.config)
+    bpr = utils.BPRLoss(Recmodel, world.config,'Adam')
     # ----------------------------------------------------------------------------
     file = utils.getFileName(world.model_name,
                              world.dataset,
                              world.config['latent_dim_rec'],
                              layers=world.config['lightGCN_n_layers'],
                              dns_k=world.DNS_K)
-    file=str(world.lambda_pop)+'-'+str(world.de_weight)+'-'+str(world.config['decay'])+'-'+file
+    file=world.comment+'-'+str(world.lambda_pop)+'-'+str(world.de_weight)+'-'+str(world.config['decay'])+'-'+file
     weight_file = os.path.join(world.FILE_PATH, file)
     print(f"load and save to {weight_file}")
     if world.LOAD:
         utils.load(Recmodel, weight_file)
     # ----------------------------------------------------------------------------
     earlystop = utils.EarlyStop(patience=20, model=Recmodel, filename=weight_file)
-    Recmodel = Recmodel.to(world.DEVICE)
+    Recmodel = Recmodel.cuda()
     if world.model_name == 'ConditionalBPRMF':
         Recmodel.set_popularity(popularity_matrix)
     # ----------------------------------------------------------------------------

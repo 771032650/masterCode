@@ -64,6 +64,7 @@ SAMPLER = {
     'SD':sample.SimpleSample,
     'UD':sample.UD,
     'PD':sample.PD,
+    'new_UD':sample.new_UD
 }
 
 TRAIN = {

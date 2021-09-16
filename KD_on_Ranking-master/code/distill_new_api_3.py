@@ -67,25 +67,7 @@ import register
 from register import dataset
 
 
-def load_popularity():
-    r_path = world.DATA_PATH+"/"+world.dataset+"/"
-    pop_save_path = r_path+"item_pop_seq_ori2.txt"
-    if not os.path.exists(pop_save_path):
-        pop_save_path = r_path+"item_pop_seq_ori.txt"
-    print("popularity used:",pop_save_path)
-    with open(pop_save_path) as f:
-        print("pop save path: ", pop_save_path)
-        item_list = []
-        pop_item_all = []
-        for line in f:
-            line = line.strip().split()
-            item, pop_list = int(line[0]), [float(x) for x in line[1:]]
-            item_list.append(item)
-            pop_item_all.append(pop_list)
-    pop_item_all = np.array(pop_item_all)
-    print("pop_item_all shape:", pop_item_all.shape)
-    print("load pop information:",pop_item_all.mean(),pop_item_all.max(),pop_item_all.min())
-    return pop_item_all
+
 
 def get_dataset_tot_popularity():
     popularity_matrix=dataset.itemCount()
@@ -98,18 +80,7 @@ def get_dataset_tot_popularity():
     # print("After power,popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))
     return popularity_matrix
 
-def get_popularity_from_load(item_pop_all):
-    popularity_matrix = item_pop_all[:,:-1]  # don't contain the popularity in test stages
-    print("------ popularity information --------")
-    print("   each stage mean:",popularity_matrix.mean(axis=0))
-    print("   each stage max:",popularity_matrix.max(axis=0))
-    print("   each stage min:",popularity_matrix.min(axis=0))
-    # popularity_matrix = np.power(popularity_matrix,popularity_exp)  # don't contain the popullarity for test stages...
-    # print("------ popularity information after power  ------")
-    # print("   each stage mean:",popularity_matrix.mean(axis=0))
-    # print("   each stage max:",popularity_matrix.max(axis=0))
-    # print("   each stage min:",popularity_matrix.min(axis=0))
-    return popularity_matrix
+
 
 
 
@@ -137,35 +108,88 @@ def Sample_DNS_python_valid(vaild_users,groundTrue):
         return S
 
 
+def load_vaild_data(dataset, Recmodel):
+    """evaluate models
+
+    Args:
+        dataset (BasicDatset): defined in dataloader.BasicDataset, loaded in register.py
+        Recmodel (PairWiseModel):
+        epoch (int):
+        w (SummaryWriter, optional): Tensorboard writer
+        multicore (int, optional): The num of cpu cores for testing. Defaults to 0.
+
+    Returns:
+        dict: summary of metrics
+    """
+    u_batch_size = world.config['test_u_batch_size']
+    dataset: utils.BasicDataset
+    testDict: dict
+    testDict = dataset.testDict
+    Recmodel: model.LightGCN
+    # eval mode with no dropout
+    Recmodel.eval()
+    max_K = 1
+    with torch.no_grad():
+        users =torch.from_numpy(np.arange(dataset.n_users))
+        flag=0
+
+        # ratings = []
+        total_batch = len(users) // u_batch_size + 1
+        for batch_users in utils.minibatch(users, batch_size=u_batch_size):
+            allPos = dataset.getUserPosItems(batch_users)
+
+            batch_users_gpu = batch_users.long()
+            batch_users_gpu = batch_users_gpu.cuda()
+
+            rating = Recmodel.getUsersRating(batch_users_gpu)
+            #rating = rating.cpu()
+            exclude_index = []
+            exclude_items = []
+            if not world.TESTDATA:
+                for range_i, items in enumerate(allPos):
+                    exclude_index.extend([range_i] * len(items))
+                    exclude_items.extend(items)
+                rating[exclude_index, exclude_items] = -1e10
+            _, rating_K = torch.topk(rating, k=max_K)
+            del rating
+            if flag==0:
+                user_array=batch_users
+                rating_array=rating_K.cpu()
+                flag=1
+            else:
+                user_array=torch.cat((user_array,batch_users),dim=-1)
+                rating_array = torch.cat((rating_array, rating_K.cpu()), dim=0)
+        print(user_array.shape)
+        print(rating_array.shape)
+        return user_array,rating_array
+
+
+def get_rank_loss(users,p_items,teacher_model,model):
+    dim_item = p_items.shape[-1]
+    vector_user = users.repeat((dim_item, 1)).t().reshape((-1,))
+    vector_item = p_items.reshape((-1,))
+    weight_pop = teacher_model(vector_user, vector_item)
+    scores = weight_pop.reshape((-1, dim_item))
+
+    samples = scores.sort(dim=-1)[1].cuda()
+    new_users=users[samples]
+    new_items=p_items[samples]
+
+    dim_item = p_items.shape[-1]
+    vector_user = new_users.repeat((dim_item, 1)).t().reshape((-1,))
+    vector_item = new_items.reshape((-1,))
+    S1=model(vector_user,vector_item)
+    S1 = S1.reshape((-1, dim_item))
+
+    #S2 = model(new_users, n_items)
+    above = S1.sum(1, keepdim=True)
+    below1 = S1.flip(-1).exp().cumsum(1)
+    #below2 = S2.exp().sum(1, keepdim=True)
+    below = (below1 ).log().sum(1, keepdim=True)
+    return -torch.sum(above - below)
+
 
 if __name__ == '__main__':
-    # random.seed(123)
-    # tf.set_random_seed(123)
-
-
-    # os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda)
-    # config = dict()
-    # config['n_users'] = data.n_users
-    # config['n_items'] = data.n_items  # in batch_test.py
-    # model_type = ''
-    # print("data size:",sys.getsizeof(data)/(10**6),"GB")
-    # # ----------  important parameters -------------------------
-
-    # test_batch_size = min(1024,args.batch_size)
-
-
-
-    # ------------  pre computed popularity ------------------
-    # pop_item_all = load_popularity()
-    # # popularity for test...
-    # last_stage_popualarity = pop_item_all[:,-2]
-    # last_stage_popualarity = np.power(last_stage_popualarity,popularity_exp)   # laste stage popularity (method (a) )
-    # linear_predict_popularity = pop_item_all[:,-2] + 0.5 * (pop_item_all[:,-2] - pop_item_all[:,-3]) # linear predicted popularity (method (b))
-    # linear_predict_popularity[np.where(linear_predict_popularity<=0)] = 1e-9
-    # linear_predict_popularity[np.where(linear_predict_popularity>1.0)] = 1.0
-    # linear_predict_popularity = np.power(linear_predict_popularity,popularity_exp) # pop^(gamma) in paper
-    # dataset.add_last_popularity(linear_predict_popularity)
-    # t_linear_predict_popularity = np.power(linear_predict_popularity, t_popularity_exp)
 
     popularity_matrix = get_dataset_tot_popularity()
     # popularity_matrix[np.where(popularity_matrix<1e-9)] = 1e-9
@@ -212,18 +236,9 @@ if __name__ == '__main__':
     #     student_model.set_popularity(popularity_matrix)
     # if world.teacher_model_name == 'ConditionalBPRMF'  :
     #     teacher_model.set_popularity(popularity_matrix)
+    weight1_model = TwoLinear(dataset.n_users,dataset.m_items).cuda()
     weight2_model = ZeroLinear().cuda()
-    if world.mate_model==2:
-        weight1_model = TwoLinear(dataset.n_users,dataset.m_items).cuda()
-
-    elif world.mate_model==0:
-        weight1_model = ZeroLinear().cuda()
-
-    else:
-        weight1_model = OneLinear(dataset.m_items).cuda()
-
-    weight1_optimizer = torch.optim.Adam(weight1_model.parameters(), lr=world.config['mate_lr'],
-                                         weight_decay=world.config['mate_decay_1'])
+    weight1_optimizer = torch.optim.Adam(weight1_model.parameters(), lr=world.config['mate_lr'],weight_decay= world.config['mate_decay_1'])
     weight2_optimizer = torch.optim.Adam(weight2_model.parameters(), lr=world.config['mate_lr'],
                                          weight_decay=world.config['mate_decay_1'])
     #one_step_model_optimizer = torch.optim.Adam(one_step_model.parameters(), lr=0.001)
@@ -244,7 +259,7 @@ if __name__ == '__main__':
                              world.config['latent_dim_rec'],
                              layers=world.config['lightGCN_n_layers'],
                              dns_k=world.DNS_K)
-    file =world.comment+'-'+ world.teacher_model_name + '-' +str(world.t_lambda_pop) + '-'+ world.SAMPLE_METHOD + '-' + str(world.config['teacher_dim']) + '-' + str(
+    file = world.comment+'-'+world.teacher_model_name + '-' +str(world.t_lambda_pop) + '-'+ world.SAMPLE_METHOD + '-' + str(world.config['teacher_dim']) + '-' + str(
         world.config['mate_decay_1']) + '-' + str(world.mate_model) + '-' + str(world.config['mate_decay_2']) +'-'+file
     weight_file = os.path.join(world.FILE_PATH, file)
     print('-------------------------')
@@ -275,11 +290,9 @@ if __name__ == '__main__':
     # start training
 
 
-    valid_Dict = dataset.validDict
-    vaild_keys = list(valid_Dict.keys())
-    groundTrue = [valid_Dict[u] for u in vaild_keys]
-
+    vaild_keys,groundTrue = load_vaild_data(dataset,teacher_model)
     mean_criterion = torch.nn.BCELoss(reduction='sum')
+    user_keys = torch.arange(dataset.n_users)
 
 
 
@@ -298,25 +311,26 @@ if __name__ == '__main__':
             with timer(name='sampling'):
                 S = sampler.PerSample()
             S = torch.Tensor(S).long()
+
             users, posItems, negItems = S[:, 0], S[:, 1], S[:, 2]
             negItems = negItems.reshape((-1, 1))
             users, posItems, negItems= utils.shuffle(users, posItems, negItems)
+
+            total_batch = len(users) // world.config['bpr_batch_size'] + 1
 
             vaild_S = Sample_DNS_python_valid(vaild_keys, groundTrue)
             vaild_S = torch.Tensor(vaild_S).long()
             vaild_users, vaild_posItems, vaild_negItems = vaild_S[:, 0], vaild_S[:, 1], vaild_S[:, 2]
             vaild_users = vaild_users.repeat(2)
             vaild_users = vaild_users.cuda()
-            vaild_item = torch.cat((vaild_posItems, vaild_negItems),dim=0)
+            vaild_item = torch.cat((vaild_posItems, vaild_negItems), dim=0)
             vaild_item = vaild_item.cuda()
-            vaild_lable_1=torch.ones((len(vaild_posItems)))
+            vaild_lable_1 = torch.ones((len(vaild_posItems)))
             vaild_lable_2 = torch.zeros((len(vaild_negItems)))
             vaild_lable = torch.cat((vaild_lable_1, vaild_lable_2), dim=0).cuda()
 
-            batch_users_v, batch_item_v,vaild_lable = utils.shuffle(vaild_users, vaild_item,vaild_lable)
+            batch_users_v, batch_item_v, vaild_lable = utils.shuffle(vaild_users, vaild_item, vaild_lable)
 
-            total_batch = len(users) // world.config['bpr_batch_size'] + 1
-            total_batch_1 = len(vaild_users) // world.config['bpr_batch_size'] + 1
             # formal parameter: Using training set to update parameters
             with timer(name="one_step_model"):
                 for (batch_i, (batch_users, batch_pos, batch_neg)) in enumerate(
@@ -325,7 +339,6 @@ if __name__ == '__main__':
                                         negItems,
                                         batch_size=1024)):
 
-                    #weight1 = torch.exp(weight1 / 5)  # for stable training
 
                         one_step_model = register.MODELS[world.model_name](world.config, dataset).cuda()
                         one_step_model.load_state_dict(student_model.state_dict())
@@ -336,79 +349,42 @@ if __name__ == '__main__':
                         batch_neg_1, _, KD_loss,kd_items,kd_users = sampler.Sample(
                                     batch_users, batch_pos, batch_neg, one_step_model,one_step=1)
 
-                        # batch_pos_pop = torch.pow(popularity_matrix[batch_pos].cuda(),
-                        #                           weight1_model(batch_users, batch_pos))
-                        # batch_neg_pop = torch.pow(popularity_matrix[batch_neg].cuda(),
-                        #                           weight1_model(batch_users, batch_neg))
 
                         # all pair data in this block
                         loss_f, reg_loss =one_step_model.bpr_loss_pop(batch_users, batch_pos, batch_neg_1, None,
                                                                  None)
                         reg_loss = reg_loss *world.config['decay']
                         assert KD_loss.requires_grad == True
-
                         loss_f_all_one = loss_f  + KD_loss
-
                         loss_f_all_one = loss_f_all_one + reg_loss
-                        # one_step_model_optimizer.zero_grad()
-                        # loss_f_all_one.backward()
-                        # one_step_model_optimizer.step()
                         one_step_model.zero_grad()
                         grads = torch.autograd.grad(loss_f_all_one, (one_step_model.params()),create_graph=True)
                         one_step_model.update_params(world.config['lr'], source_params=grads)
                         cri = KD_loss.cpu().item()
                         aver_loss_1 += cri
 
-                        # update parameters of one_step_model
-                        # one_step_model.zero_grad()
-                        # grads = torch.autograd.grad(loss_f_all, (one_step_model.params()), create_graph=False)
-                        # one_step_model.update_params(world.config['lr'], source_params=grads)
-                    #
-                    #     # latter hyper_parameter: Using uniform set to update hyper_parameters
-                    #     if batch_i == 0:
-                    #         print(weight1_model.getUsersRating(batch_users))
-
                         weight1_model.train()
-                        y_hat_l = one_step_model(batch_users_v, batch_item_v)
-                        # loss_l_p,reg_loss_p=one_step_model.bpr_loss_pop(vaild_users.cuda(),
-                        #                                        vaild_posItems.cuda(),
-                        #                                        vaild_negItems.cuda(), None,None)
-                        y_hat_l=torch.sigmoid(y_hat_l)
-                        loss_l_p=mean_criterion(y_hat_l,vaild_lable)
 
-                        #loss_l_p=loss_l_p+weight1_model.l2_norm(all_items)*0.0001+weight1_model.aver_norm(all_items)*0.001
-                        #loss_l_p = loss_l_p + weight1_model.aver_norm(all_items) * 0.001
-                        #loss_l_p = loss_l_p + weight1_model.l2_norm(all_items) * 0.0001
-                        #loss_l_p = loss_l_p  + weight1_model.l2_norm() * 0.0001
-                        # loss_l_p = loss_l_p + weight1_model.l2_norm(all_users.squeeze(),all_items) * 0.0001 + weight1_model.aver_norm(
-                        #   all_users.squeeze(),all_items) * 0.001
-                        # if world.mate_model==1:
-                        #     loss_l_p=loss_l_p+ weight1_model.l2_norm(kd_items) *world.config['mate_decay_1']+weight1_model.aver_norm(kd_items) * world.config['mate_decay_2']
-                        # elif world.mate_model==2:
-                        #     loss_l_p = loss_l_p + weight1_model.l2_norm(kd_users,kd_items) *world.config['mate_decay_1']+ weight1_model.aver_norm(kd_users,kd_items) * world.config['mate_decay_2']
-                        # else:
-                        #     loss_l_p = loss_l_p + weight1_model.l2_norm() * world.config['mate_decay_1']
-                        if world.mate_model==1:
-                            loss_l_p=loss_l_p+weight1_model.aver_norm(kd_items) * world.config['mate_decay_2']
-                        elif world.mate_model==2:
-                            loss_l_p = loss_l_p + weight1_model.aver_norm(kd_users,kd_items) * world.config['mate_decay_2']
+                        y_hat_l_1 = one_step_model(batch_users_v, batch_item_v)
+                        y_hat_l_1 = torch.sigmoid(y_hat_l_1)
+                        loss_l_p_1 = mean_criterion(y_hat_l_1, vaild_lable)
+                        loss_l_p_3=get_rank_loss(user_keys.cuda(),kd_items,teacher_model,one_step_model)
+                        loss_l_p = loss_l_p_1+loss_l_p_3
 
                         weight1_optimizer.zero_grad()
-                        #weight2_optimizer.zero_grad()
                         loss_l_p.backward()
-
                         weight1_optimizer.step()
-                        #weight2_optimizer.step()
 
 
-                        if batch_i==0:
-                            print(weight2_model.getUsersRating())
-                            if world.mate_model==2:
-                                print(weight1_model.getUsersRating(torch.tensor([0,1,2,3,4]).long().cuda()))
-                            else:
-                                print(weight1_model.getUsersRating())
+
+
+
                         cri = loss_l_p.cpu().item()
                         aver_loss_2 += cri
+
+                        if batch_i==0:
+                            print(weight1_model.getUsersRating(torch.tensor([0,1,2,3,4]).long().cuda()))
+
 
 
                         student_model.train()
@@ -423,18 +399,15 @@ if __name__ == '__main__':
                         loss_f_all_2 = loss_f + KD_loss_2
 
                         loss_f_all_2 = loss_f_all_2 + reg_loss
-                        #loss_f_all_2=torch.sum(loss_f_all_2.squeeze(dim=-1))
+
                         student_model_optimizer.zero_grad()
                         loss_f_all_2.backward()
                         student_model_optimizer.step()
-                        # student_model.zero_grad()
-                        # grads = torch.autograd.grad(loss_f_all_2, (student_model.params()),create_graph=True)
-                        # student_model.update_params(world.config['lr'], source_params=grads)
+
                         cri=KD_loss_2.cpu().item()
                         aver_loss_3 += cri
 
-                        # if torch.equal(one_step_model.embedding_user.weight,student_model.embedding_user.weight):
-                        #     print(batch_i)
+
 
 
 
@@ -442,7 +415,7 @@ if __name__ == '__main__':
           
 
             aver_loss_1 = aver_loss_1 / total_batch
-            aver_loss_2 = aver_loss_2 / total_batch_1
+            aver_loss_2 = aver_loss_2 / total_batch
             aver_loss_3 = aver_loss_3 / total_batch
 
             info = f"{timer.dict()}[loss_1:{aver_loss_1:.5e}][loss_2:{aver_loss_2:.5e}][BPR loss:{aver_loss_3:.5e}]"
@@ -459,9 +432,6 @@ if __name__ == '__main__':
             if epoch % 5 == 0 :
                 start = time.time()
                 cprint("    [valid1]")
-                results = Procedure.Test(dataset, student_model, epoch, 1, world.config['multicore'], valid=True)
-                pprint(results)
-                cprint("    [valid2]")
                 results = Procedure.Test(dataset, student_model, epoch, None, world.config['multicore'], valid=True)
                 pprint(results)
                 print(f"    [valid TIME] {time.time() - start}")

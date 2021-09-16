@@ -19,12 +19,17 @@ from dataloader import BasicDataset, Loader
 # ============================================================================
 # pair loss
 class BPRLoss:
-    def __init__(self, recmodel: PairWiseModel, config: dict):
+    def __init__(self, recmodel: PairWiseModel, config: dict,optloss):
         self.model = recmodel
         self.weight_decay = config['decay']
         self.lr = config['lr']
-        self.opt = optim.SGD(recmodel.params(), lr=self.lr)
-        #self.opt = optim.Adam(recmodel.parameters(), lr=self.lr)
+
+        if optloss=='Adam':
+            print(optloss)
+            self.opt = optim.Adam(recmodel.params(), lr=self.lr)
+        else:
+            print(optloss)
+            self.opt = optim.SGD(recmodel.params(), lr=self.lr)
 
     def stageOne(self,
                  users,
@@ -76,6 +81,8 @@ class BPRLoss:
 
         return loss.cpu().item()
 
+
+
 def getTestweight(users: Tensor, items: Tensor, dataset: BasicDataset):
     """
         designed only for levave-one-out data
@@ -92,7 +99,7 @@ def getTestweight(users: Tensor, items: Tensor, dataset: BasicDataset):
     weights = np.ones_like(users)
     weights[index] = world.ARGS.testweight
 
-    return Tensor(weights).to(world.DEVICE)
+    return Tensor(weights).cuda()
 
 
 # ============================================================================
@@ -224,7 +231,7 @@ def shuffle(*arrays, **kwargs):
 def TO(*tensors, **kwargs):
     results = []
     for tensor in tensors:
-        results.append(tensor.to(world.DEVICE))
+        results.append(tensor.cuda())
     return results
 
 

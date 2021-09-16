@@ -252,8 +252,8 @@ class LightEmb(LightGCN):
         self._embedding_item = Embedding_wrapper(
              num_embeddings=self.num_items, embedding_dim=self.latent_dim
         )
-        self._user_tea = self.tea.embedding_user.weight.data.to(world.DEVICE)
-        self._item_tea = self.tea.embedding_item.weight.data.to(world.DEVICE)
+        self._user_tea = self.tea.embedding_user.weight.data.cuda()
+        self._item_tea = self.tea.embedding_item.weight.data.cuda()
         # print(self._user_tea.requires_grad, self._item_tea.requires_grad)
         # not grad needed for teacher
 
@@ -428,7 +428,7 @@ class LightExpert(LightGCN):
                 selection_result = 1.
             else:
                 # Expert Selection
-                g = torch.distributions.Gumbel(0, 1).sample(selection_dist.size()).to(world.DEVICE)
+                g = torch.distributions.Gumbel(0, 1).sample(selection_dist.size()).cuda()
                 eps = 1e-10  # for numerical stability
                 selection_dist = selection_dist + eps
                 selection_dist = self.sm((selection_dist.log() + g) / self.T)
@@ -627,7 +627,7 @@ class ConditionalBPRMF(MetaModule):
 
     def set_popularity(self, last_popularity):
         self.last_popularity = last_popularity
-        self.last_popularity = torch.Tensor(self.last_popularity).to(world.DEVICE)
+        self.last_popularity = torch.Tensor(self.last_popularity).cuda()
 
     def computer(self):
         users_emb = self.embedding_user.weight
@@ -638,7 +638,7 @@ class ConditionalBPRMF(MetaModule):
     def getUsersRating(self, users):
         all_users, all_items = self.computer()
         users_emb = all_users[users]
-        items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE1)
+        items = torch.Tensor(range(self.dataset.m_items)).long().cuda()
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
         rating=self.felu(rating) + 1
@@ -773,7 +773,7 @@ class BPRMF(MetaModule):
     def getUsersRating(self, users):
         all_users, all_items = self.computer()
         users_emb = all_users[users]
-        items = torch.Tensor(range(self.dataset.m_items)).long().to(world.DEVICE)
+        items = torch.Tensor(range(self.dataset.m_items)).long().cuda()
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
         #rating = torch.relu(rating)
@@ -893,7 +893,7 @@ class BPRMFExpert(BPRMF):
                 selection_result = 1.
             else:
                 # Expert Selection
-                g = torch.distributions.Gumbel(0, 1).sample(selection_dist.size()).to(world.DEVICE)
+                g = torch.distributions.Gumbel(0, 1).sample(selection_dist.size()).cuda()
                 eps = 1e-10  # for numerical stability
                 selection_dist = selection_dist + eps
                 selection_dist = self.sm((selection_dist.log() + g) / self.T)
@@ -904,7 +904,7 @@ class BPRMFExpert(BPRMF):
             expert_outputs = torch.cat(expert_outputs, -1)  # batch_size x teacher_dims x num_experts
             expert_outputs = expert_outputs * selection_result  # batch_size x teacher_dims x num_experts
             expert_outputs = expert_outputs.sum(-1)  # batch_size x teacher_dims
-            DE_loss = torch.mean(((t - expert_outputs) ** 2).sum(-1))
+            DE_loss = torch.sum(((t - expert_outputs) ** 2).sum(-1))
             return DE_loss
 
 
@@ -929,7 +929,7 @@ class OneLinear(nn.Module):
 
     def getUsersRating(self):
 
-        items = torch.Tensor(range(self.m_items)).long().to(world.DEVICE)
+        items = torch.Tensor(range(self.m_items)).long().cuda()
         items_emb = self.data_bias.weight[items]
         #rating = torch.matmul(users_emb, items_emb.t())
         #rating = torch.sum(users_emb * items_emb, dim=1)
@@ -937,12 +937,12 @@ class OneLinear(nn.Module):
 
     def l2_norm(self,items):
         #items = torch.unique(items)
-        l2_loss = (torch.mean(self.data_bias.weight[items]** 2)) / 2
+        l2_loss = (torch.sum(self.data_bias.weight[items]** 2)) / 2
         return l2_loss
 
     def aver_norm(self,items):
         #items = torch.unique(items)
-        l2_loss = (torch.mean((self.data_bias.weight[items]-torch.mean(self.data_bias.weight))** 2)) / 2
+        l2_loss = (torch.sum((self.data_bias.weight[items]-torch.mean(self.data_bias.weight))** 2)) / 2
 
         return l2_loss
 
@@ -969,20 +969,20 @@ class TwoLinear(nn.Module):
     def forward(self, users, items):
         u_embed = self.user_embed(users)
         i_embed = self.item_embed(items)
-        preds_1 = torch.sum(u_embed+i_embed,dim=-1)
-        #preds_1 = torch.sum(u_embed * i_embed, dim=-1)
+        preds_1 = torch.sum(u_embed*i_embed,dim=-1)
+        #preds_1 = torch.sum(u_embed + i_embed, dim=-1)
         return torch.sigmoid(preds_1.squeeze())
 
     def getUsersRating(self, users):
-        items = torch.Tensor(range(self.m_items)).long().to(world.DEVICE)
-        dim_item = items.shape[-1]
-        users = users.reshape((-1,1)).repeat((1, dim_item))
+        items = torch.Tensor(range(self.m_items)).long().cuda()
+        # dim_item = items.shape[-1]
+        # users = users.reshape((-1,1)).repeat((1, dim_item))
         u_embed= self.user_embed(users)
         i_embed = self.item_embed(items)
-        #rating = torch.matmul(u_embed, i_embed.t())
+        rating = torch.matmul(u_embed, i_embed.t())
 
-        rating = torch.sum(u_embed + i_embed, dim=-1)
-        return torch.sigmoid(rating.squeeze())
+        #rating = torch.sum(u_embed + i_embed, dim=-1)
+        return torch.sigmoid(rating)
 
     def l2_norm(self, users, items):
         # users = torch.unique(users)
@@ -994,7 +994,7 @@ class TwoLinear(nn.Module):
     def aver_norm(self,users,items):
         # users = torch.unique(users)
         # items = torch.unique(items)
-        l2_loss = (torch.mean(torch.sum((self.user_embed.weight[users]-torch.mean(self.user_embed.weight,dim=0)) ** 2, dim=-1)+
+        l2_loss = (torch.sum(torch.sum((self.user_embed.weight[users]-torch.mean(self.user_embed.weight,dim=0)) ** 2, dim=-1)+
                   torch.sum((self.item_embed.weight[items]-torch.mean(self.item_embed.weight,dim=0)) ** 2, dim=-1))) / 2
         return l2_loss
 

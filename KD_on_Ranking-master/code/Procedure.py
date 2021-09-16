@@ -37,7 +37,7 @@ def Distill_DNS_yield(dataset, student, sampler, loss_class, epoch, w=None):
         S = sampler.PerSample(batch=world.config['bpr_batch_size'])
     total_batch = dataset.trainDataSize // world.config['bpr_batch_size'] + 1
     for batch_i, Pairs in enumerate(S):
-        Pairs = torch.from_numpy(Pairs).long().to(world.DEVICE)
+        Pairs = torch.from_numpy(Pairs).long().cuda()
         # print(Pairs.shape)
         batch_users, batch_pos, batch_neg = Pairs[:, 0], Pairs[:, 1], Pairs[:,
                                                                             2:]
@@ -87,7 +87,7 @@ def Distill_DNS(dataset, student, sampler, loss_class, epoch, w=None):
     aver_loss = 0
     with timer(name='sampling'):
         S = sampler.PerSample()
-    S = torch.Tensor(S).long().to(world.DEVICE)
+    S = torch.Tensor(S).long().cuda()
     users, posItems, negItems = S[:, 0], S[:, 1], S[:, 2:]
     users, posItems, negItems = utils.shuffle(users, posItems, negItems)
     total_batch = len(users) // world.config['bpr_batch_size'] + 1
@@ -140,7 +140,7 @@ def Distill_DNS_pop(dataset, student, sampler, loss_class, epoch, w=None):
     aver_kd=0
     with timer(name='sampling'):
         S = sampler.PerSample()
-    S = torch.Tensor(S).float().to(world.DEVICE)
+    S = torch.Tensor(S).float().cuda()
     users, posItems, negItems, pos_pop, neg_pop = S[:, 0].long(), S[:, 1].long(), S[:, 2].long(), S[:, 3], S[:, 4]
     negItems=negItems.reshape((-1,1))
     users, posItems, negItems, pos_pop, neg_pop = utils.shuffle(users, posItems, negItems, pos_pop, neg_pop)
@@ -194,7 +194,7 @@ def BPR_train_DNS_neg(dataset, recommend_model, loss_class, epoch, w=None):
     Recmodel.train()
     bpr: utils.BPRLoss = loss_class
     S = Sample_original(dataset)
-    S = torch.Tensor(S).long().to(world.DEVICE)
+    S = torch.Tensor(S).long().cuda()
     users, posItems, negItems = S[:, 0], S[:, 1], S[:, 2]
     users, posItems, negItems = utils.shuffle(users, posItems, negItems)
     total_batch = len(users) // world.config['bpr_batch_size'] + 1
@@ -237,7 +237,7 @@ def BPR_train_DNS_neg_pop(dataset, recommend_model, loss_class, epoch, w=None):
     Recmodel.train()
     bpr: utils.BPRLoss = loss_class
     S = Sample_original(dataset)
-    S = torch.Tensor(S).float().to(world.DEVICE)
+    S = torch.Tensor(S).float().cuda()
     users, posItems, negItems,pos_pop,neg_pop = S[:, 0].long(), S[:, 1].long(), S[:, 2].long(),S[:, 3], S[:, 4]
     users, posItems, negItems,pos_pop,neg_pop = utils.shuffle(users, posItems, negItems,pos_pop,neg_pop)
     total_batch = len(users) // world.config['bpr_batch_size'] + 1
@@ -291,9 +291,9 @@ def BPR_train_original(dataset, recommend_model, loss_class, epoch, w=None):
     posItems = S[:, 1]
     negItems = S[:, 2]
 
-    users = users.to(world.DEVICE)
-    posItems = posItems.to(world.DEVICE)
-    negItems = negItems.to(world.DEVICE)
+    users = users.cuda()
+    posItems = posItems.cuda()
+    negItems = negItems.cuda()
     users, posItems, negItems = utils.shuffle(users, posItems, negItems)
     total_batch = len(users) // world.config['bpr_batch_size'] + 1
     aver_loss = 0.
@@ -374,7 +374,10 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
     dataset: utils.BasicDataset
     testDict: dict
     if valid:
-        testDict = dataset.valid2Dict
+        if w==1:
+            testDict = dataset.valid2Dict
+        else:
+            testDict = dataset.validDict
     else:
         testDict = dataset.testDict
     Recmodel: model.LightGCN
@@ -394,7 +397,7 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
             allPos = dataset.getUserPosItems(batch_users)
             groundTrue = [testDict[u] for u in batch_users]
             batch_users_gpu = torch.Tensor(batch_users).long()
-            batch_users_gpu = batch_users_gpu.to(world.DEVICE)
+            batch_users_gpu = batch_users_gpu.cuda()
 
             rating = Recmodel.getUsersRating(batch_users_gpu)
             #rating = rating.cpu()
@@ -429,17 +432,7 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
                 results['ndcg'] += result['ndcg']
             results['hr'] /= float(len(users))
             results['ndcg'] /= float(len(users))
-            if w:
-                w.add_scalars(
-                    f'Valid/HR@{world.topks}', {
-                        str(world.topks[i]): results['hr'][i]
-                        for i in range(len(world.topks))
-                    }, epoch)
-                w.add_scalars(
-                    f'Valid/NDCG@{world.topks}', {
-                        str(world.topks[i]): results['ndcg'][i]
-                        for i in range(len(world.topks))
-                    }, epoch)
+
         else:
             results = {
                 'precision': np.zeros(len(world.topks)),
@@ -463,22 +456,7 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
             results['precision'] /= float(len(users))
             results['ndcg'] /= float(len(users))
             #results['dcg'] /= float(len(users))
-            if w:
-                w.add_scalars(
-                    f'Valid/Recall@{world.topks}', {
-                        str(world.topks[i]): results['recall'][i]
-                        for i in range(len(world.topks))
-                    }, epoch)
-                w.add_scalars(
-                    f'Valid/Precision@{world.topks}', {
-                        str(world.topks[i]): results['precision'][i]
-                        for i in range(len(world.topks))
-                    }, epoch)
-                w.add_scalars(
-                    f'Valid/NDCG@{world.topks}', {
-                        str(world.topks[i]): results['ndcg'][i]
-                        for i in range(len(world.topks))
-                    }, epoch)
+
         if multicore == 1:
             pool.close()
         return results
@@ -509,7 +487,7 @@ def Popularity_Bias(dataset, Recmodel, valid=True,max_k=50):
         for batch_users in utils.minibatch(users, batch_size=u_batch_size):
             allPos = dataset.getUserPosItems(batch_users)
             batch_users_gpu = torch.Tensor(batch_users).long()
-            batch_users_gpu = batch_users_gpu.to(world.DEVICE)
+            batch_users_gpu = batch_users_gpu.cuda()
             rating = Recmodel.getUsersRating(batch_users_gpu)
             rating = rating.cpu()
             exclude_index = []
@@ -592,7 +570,7 @@ def Test_PCA(dataset, Recmodel, epoch, w=None, multicore=0, valid=True,pca_dim=3
             allPos = dataset.getUserPosItems(batch_users)
             groundTrue = [testDict[u] for u in batch_users]
             batch_users_gpu = torch.Tensor(batch_users).long()
-            batch_users_gpu = batch_users_gpu.to(world.DEVICE)
+            batch_users_gpu = batch_users_gpu.cuda()
 
             rating = Recmodel.getUsersRating(batch_users_gpu,pca1=pca1)
             rating = rating.cpu()
@@ -704,7 +682,7 @@ def Popularity_Bias_PCA(dataset, Recmodel, valid=True,pca_dim=32):
         for batch_users in utils.minibatch(users, batch_size=u_batch_size):
             allPos = dataset.getUserPosItems(batch_users)
             batch_users_gpu = torch.Tensor(batch_users).long()
-            batch_users_gpu = batch_users_gpu.to(world.DEVICE)
+            batch_users_gpu = batch_users_gpu.cuda()
 
             rating = Recmodel.getUsersRating(batch_users_gpu,pca1=pca1)
             rating = rating.cpu()

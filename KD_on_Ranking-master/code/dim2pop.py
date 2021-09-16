@@ -11,7 +11,7 @@ def array(x):
 #dims=['64','128','192','256','300','350','400']
 #dims=['0.0','0.02','0.04','0.06','0.08','0.10','0.12', '0.14','0.16','0.18','0.20','0.24','0.26','0.28']
 #dims = ['5','10']
-dims = ['0','1','n']
+dims = ['1','2','3','4','5','6']
 # yelp_lgn = []
 
 def plot_metrics(data, key='precision', topk=1, title='Gowa MF'):
@@ -181,11 +181,12 @@ if __name__ == "__main__":
     #plot_bias(bias, key='APT5', title=title)
     # plot_bias(bias, key='I_KL', title=title)
     # plot_bias(bias, key='I_bin', title=title)
-    data1=pla.UD_comparsion_gowa_0831_vaild
-    data2 = pla.UD_comparsion_gowa_0831_test
+    data1=pla.UD_comparsion_gowa_0914_vaild
+    data2 = pla.UD_comparsion_yelp_0914_vaild
     data3 = pla.BPRMF_100_gowa
-    plot_new(data1, key='precision', title='gowa vaild precision',co="red")
-    plot_new(data2, key='precision', title='gowa test precision' ,co="blue")
+    #plot_new(data1, key='precision', title='gowa vaild precision',co="red")
+    plot_new(data1, key='ndcg', title='gowa test ndcg' ,co="red")
+    plot_new(data2, key='ndcg', title='gowa test ndcg', co="red")
     #plot_metrics_double(data1=data1,data2=data2, data3=data3,topk=1, title='gowa_MF')
     #bais=pla.BPRMF_kwai_bais
     #plot_metrics(data=data1,topk=1,title='douban_MF')

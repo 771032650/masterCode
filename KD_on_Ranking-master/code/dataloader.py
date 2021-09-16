@@ -104,7 +104,7 @@ class Loader(BasicDataset):
                     items = [int(i) for i in l[1:]]
                     uid = int(l[0])
                     trainUniqueUsers.append(uid)
-                    len1=ceil(len(items)*0.9)
+                    len1=ceil(len(items)*world.config['dataset_split'])
                     len2=len(items)-len1
                     trainUser.extend([uid] * len1)
                     trainItem.extend(items[:len1])
@@ -293,7 +293,7 @@ class Loader(BasicDataset):
                 self.Graph = self._split_A_hat(norm_adj)
             else:
                 self.Graph = self._convert_sp_mat_to_sp_tensor(norm_adj)
-                self.Graph = self.Graph.coalesce().to(world.DEVICE)
+                self.Graph = self.Graph.coalesce().cuda()
         return self.Graph
 
     def build_dict(self, users, items):

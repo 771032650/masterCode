@@ -52,7 +52,7 @@ from register import dataset
 #     print(teacher_weight_file)
 #     print('-------------------------')
 #     utils.load(teacher_model, teacher_weight_file)
-#     teacher_model = teacher_model.to(world.DEVICE)
+#     teacher_model = teacher_model.cuda()
 #     cprint("[TEST Teacher]")
 #     results = Procedure.Test(dataset, teacher_model, 0, None,
 #                              world.config['multicore'])
@@ -77,7 +77,7 @@ if world.LOAD:
     utils.load(Recmodel, weight_file)
 # ----------------------------------------------------------------------------
 earlystop = utils.EarlyStop(patience=20, model=Recmodel, filename=weight_file)
-Recmodel = Recmodel.to(world.DEVICE)
+Recmodel = Recmodel.cuda()
 # ----------------------------------------------------------------------------
 # init tensorboard
 if world.tensorboard:

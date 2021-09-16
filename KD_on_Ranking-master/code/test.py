@@ -130,7 +130,7 @@ else:
                                               dataset)
 model.eval()
 utils.load(model, weight_file)
-model = model.to(world.DEVICE)
+model = model.cuda()
 if world.model_name=='ConditionalBPRMF':
     model.set_popularity(popularity_matrix)
 #all_users, all_items = model.computer()

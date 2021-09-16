@@ -69,8 +69,8 @@ else:
 
 # ----------------------------------------------------------------------------
 # to device
-student_model = student_model.to(world.DEVICE)
-teacher_model = teacher_model.to(world.DEVICE)
+student_model = student_model.cuda()
+teacher_model = teacher_model.cuda()
 # ----------------------------------------------------------------------------
 # choosing paradigms
 procedure = register.DISTILL_TRAIN['epoch']
