@@ -460,7 +460,7 @@ def popularity_ratio(pop_model: np.ndarray, pop_model_user: np.ndarray,
 
     mapping = map_item_three(pop_dataset)
     mapping_N = map_item_N((pop_dataset),
-                           [0.1, 0.1, 0.3, 0.3, 0.2])
+                           [0.2, 0.2, 0.2, 0.2, 0.2])
 
     metrics['APT'] = APT(pop_model_user, mapping)
     metrics['APT5'] = APT(pop_model_user, mapping_N)

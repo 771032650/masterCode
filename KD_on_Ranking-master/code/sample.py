@@ -327,7 +327,7 @@ class CD:
         self.teacher = teacher.eval()
         self.dataset = dataset
         self.dns_k = dns
-        self.sample_num = 5000
+        self.sample_num = 100
         self.strategy = "student guide"
         self.lamda = lamda
         self.n_distill = n_distill

@@ -314,7 +314,7 @@ if __name__ == '__main__':
             vaild_lable = torch.cat((vaild_lable_1, vaild_lable_2), dim=0).cuda()
 
             batch_users_v, batch_item_v,vaild_lable = utils.shuffle(vaild_users, vaild_item,vaild_lable)
-
+            #vaild_users, vaild_posItems, vaild_negItems = utils.shuffle(vaild_users, vaild_posItems, vaild_negItems)
             total_batch = len(users) // world.config['bpr_batch_size'] + 1
             total_batch_1 = len(vaild_users) // world.config['bpr_batch_size'] + 1
             # formal parameter: Using training set to update parameters
@@ -370,12 +370,12 @@ if __name__ == '__main__':
 
                         weight1_model.train()
                         y_hat_l = one_step_model(batch_users_v, batch_item_v)
-                        # loss_l_p,reg_loss_p=one_step_model.bpr_loss_pop(vaild_users.cuda(),
-                        #                                        vaild_posItems.cuda(),
-                        #                                        vaild_negItems.cuda(), None,None)
+
                         y_hat_l=torch.sigmoid(y_hat_l)
                         loss_l_p=mean_criterion(y_hat_l,vaild_lable)
-
+                        # loss_l_p,_=one_step_model.bpr_loss_pop(vaild_users.cuda(),
+                        #                                        vaild_posItems.cuda(),
+                        #                                        vaild_negItems.cuda(), None,None)
                         #loss_l_p=loss_l_p+weight1_model.l2_norm(all_items)*0.0001+weight1_model.aver_norm(all_items)*0.001
                         #loss_l_p = loss_l_p + weight1_model.aver_norm(all_items) * 0.001
                         #loss_l_p = loss_l_p + weight1_model.l2_norm(all_items) * 0.0001

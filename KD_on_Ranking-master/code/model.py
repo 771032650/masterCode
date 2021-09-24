@@ -955,9 +955,9 @@ class TwoLinear(nn.Module):
         super().__init__()
         self.m_items=n_item
         self.user_embed= torch.nn.Embedding(
-                num_embeddings=n_user, embedding_dim=4)
+                num_embeddings=n_user, embedding_dim=10)
         self.item_embed= torch.nn.Embedding(
-                num_embeddings=n_item, embedding_dim=4)
+                num_embeddings=n_item, embedding_dim=10)
         self.init_embedding()
 
 

@@ -99,7 +99,7 @@ file = utils.getFileName(world.model_name,
                         dns_k=world.DNS_K
                          )
 #file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-'+ file
-file=str(world.lambda_pop)+'-'+str(world.config['de_weight'])+'-'+str(world.config['decay'])+'-'+file
+file=world.comment+'-'+str(world.t_lambda_pop)+'-'+str(world.de_weight)+'-'+str(world.config['decay'])+'-'+file
 #file=world.teacher_model_name+'-'+str(world.t_lambda_pop)+'-'+file
 #file=str(world.lambda_pop)+'-'+file
 weight_file = os.path.join(world.FILE_PATH, file)

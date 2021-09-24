@@ -7,3 +7,5 @@
 *.txt
 *.iml
 *.xml
+*.pyc
+*.file

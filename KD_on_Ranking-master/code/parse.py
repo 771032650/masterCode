@@ -8,13 +8,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Go lightGCN")
     parser.add_argument('--bpr_batch', type=int,default=1024,
                         help="the batch size for bpr loss training procedure")
-    parser.add_argument('--recdim', type=int,default=10,
+    parser.add_argument('--recdim', type=int,default=100,
                         help="the embedding size of lightGCN")
     parser.add_argument('--layer', type=int,default=2,
                         help="the layer num of lightGCN")
     parser.add_argument('--lr', type=float,default=0.001,
                         help="the learning rate")
-    parser.add_argument('--decay', type=float,default=0.0001,
+    parser.add_argument('--decay', type=float,default=0.001,
                         help="the weight decay for l2 normalizaton")
     parser.add_argument('--dropout', type=int,default=0,
                         help="using the dropout or not")
@@ -32,13 +32,13 @@ def parse_args():
                         help="@k test list")
     parser.add_argument('--tensorboard', type=int,default=1,
                         help="enable tensorboard")
-    parser.add_argument('--comment', type=str,default="")
+    parser.add_argument('--comment', type=str,default="new1")
     parser.add_argument('--load', type=int,default=0)
     parser.add_argument('--epochs', type=int,default=1000)
     parser.add_argument('--multicore', type=int, default=0, help='whether we use multiprocessing or not in test')
     parser.add_argument('--pretrain', type=int, default=0, help='whether we use pretrained weight or not')
     parser.add_argument('--seed', type=int, default=2021, help='random seed')
-    parser.add_argument('--model', type=str, default='BPRMF', help='rec-model, support [mf, lgn]')
+    parser.add_argument('--model', type=str, default='ConditionalBPRMF', help='rec-model, support [mf, lgn]')
     parser.add_argument('--teacher_model', type=str, default='ConditionalBPRMF', help='tacher-model, support [mf, lgn,ulgn]')
     parser.add_argument('--method', type=str, default='dns_pop', help='train process [original, dns]')
     parser.add_argument('--distill_method', type=str, default='epoch', help='train process ')
@@ -60,8 +60,8 @@ def parse_args():
     parser.add_argument('--de_weight', type=float, default=5.0)
     parser.add_argument('--kd_weight', type=float, default=1.0)
     parser.add_argument('--margin', type=int, default=100)
-    parser.add_argument('--lambda_pop', type=float, default=0.02)
-    parser.add_argument('--t_lambda_pop', type=float, default=0.02)
+    parser.add_argument('--lambda_pop', type=float, default=0.3)
+    parser.add_argument('--t_lambda_pop', type=float, default=0.1)
     parser.add_argument('--dataset_split', type=float, default=0.8)
     parser.add_argument('--mate_model', type=int, default=2)
     parser.add_argument('--mate_decay_1', type=float, default=1e-4)
