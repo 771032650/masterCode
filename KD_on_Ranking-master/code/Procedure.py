@@ -462,7 +462,7 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0, valid=True):
         return results
 
 
-def Popularity_Bias(dataset, Recmodel, valid=True,max_k=50):
+def Popularity_Bias(dataset, Recmodel, valid=True):
 
     u_batch_size = world.config['test_u_batch_size']
     dataset: utils.BasicDataset
@@ -476,7 +476,7 @@ def Popularity_Bias(dataset, Recmodel, valid=True,max_k=50):
     perUser = int(dataset.trainDataSize / dataset.n_users)
     # eval mode with no dropout
     Recmodel.eval()
-    max_K = max_k
+    max_K = max(world.topks)
     user_topk = np.zeros((dataset.n_users, max_K), dtype=int)
     with torch.no_grad():
         users = list(testDict.keys())

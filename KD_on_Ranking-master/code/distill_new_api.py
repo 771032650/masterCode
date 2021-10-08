@@ -88,18 +88,6 @@ def get_dataset_tot_popularity():
     # print("After power,popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))
     return popularity_matrix
 
-def get_popularity_from_load(item_pop_all):
-    popularity_matrix = item_pop_all[:,:-1]  # don't contain the popularity in test stages
-    print("------ popularity information --------")
-    print("   each stage mean:",popularity_matrix.mean(axis=0))
-    print("   each stage max:",popularity_matrix.max(axis=0))
-    print("   each stage min:",popularity_matrix.min(axis=0))
-    # popularity_matrix = np.power(popularity_matrix,popularity_exp)  # don't contain the popullarity for test stages...
-    # print("------ popularity information after power  ------")
-    # print("   each stage mean:",popularity_matrix.mean(axis=0))
-    # print("   each stage max:",popularity_matrix.max(axis=0))
-    # print("   each stage min:",popularity_matrix.min(axis=0))
-    return popularity_matrix
 
 
 
@@ -150,7 +138,7 @@ if __name__ == '__main__':
                                      layers=world.config['teacher_layer'],
                                      dns_k=world.DNS_K)
     teacher_file = str(world.de_weight) + '-' + str(world.config['decay']) + '-' +teacher_file
-    teacher_file = 'new1'+'-'+str(world.t_lambda_pop) + '-' + teacher_file
+    teacher_file = 'Adam20211005_0001'+'-'+str(world.t_lambda_pop) + '-' + teacher_file
     teacher_weight_file = os.path.join(world.FILE_PATH, teacher_file)
     print('-------------------------')
     world.cprint("loaded teacher weights from")
@@ -191,7 +179,7 @@ if __name__ == '__main__':
     procedure = register.DISTILL_TRAIN[world.distill_method]
     sampler = register.SAMPLER[world.SAMPLE_METHOD](dataset, student_model, teacher_model, world.DNS_K)
 
-    bpr = utils.BPRLoss(student_model, world.config,'SGD')
+    bpr = utils.BPRLoss(student_model, world.config,'Adam')
     # ------------------
     # ----------------------------------------------------------
     # get names
@@ -243,9 +231,9 @@ if __name__ == '__main__':
             print(f"    [TEST TIME] {time.time() - start}")
             if epoch % 5 == 0:
                 start = time.time()
-                cprint("    [valid1]")
-                results = Procedure.Test(dataset, student_model, epoch, 1, world.config['multicore'], valid=True)
-                pprint(results)
+                # cprint("    [valid1]")
+                # results = Procedure.Test(dataset, student_model, epoch, 1, world.config['multicore'], valid=True)
+                # pprint(results)
                 cprint("    [valid2]")
                 results = Procedure.Test(dataset, student_model, epoch, None, world.config['multicore'], valid=True)
                 pprint(results)
@@ -270,7 +258,7 @@ if __name__ == '__main__':
     metrics1 = utils.popularity_ratio(popularity, user_topk, dataset)
 
     testDict = dataset.testDict
-    metrics2 = utils.PrecisionByGrpup(testDict, user_topk, dataset, r)
+    metrics2 = utils.PopularityByGrpup(user_topk, dataset)
 
     log_file = os.path.join(world.LOG_PATH, world.SAMPLE_METHOD+'-'+utils.getLogFile())
     with open(log_file, 'a') as f:

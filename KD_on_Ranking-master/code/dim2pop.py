@@ -9,10 +9,9 @@ def array(x):
 #dims = ['my-400','old-400','my-128','old-128']
 #dims = ['de_rrd','ud']
 #dims=['64','128','192','256','300','350','400']
-dims=['0.0','0.02','0.04','0.06','0.08','0.10','0.12', '0.14','0.16','0.18','0.20','0.22','0.24','0.26','0.28']
+#dims=['0.0','0.02','0.04','0.06','0.08','0.10','0.12', '0.14','0.16','0.18','0.20','0.24','0.26','0.28']
 #dims = ['5','10']
-#dims = ['1','2','3','4']
-#dims = ['cd','me']
+dims = ['1','2','3','4']
 # yelp_lgn = []
 
 def plot_metrics(data, key='precision', topk=1, title='Gowa MF'):
@@ -38,7 +37,7 @@ def plot_metrics_double(data1,data2, data3,key='precision', topk=1, title='Gowa 
     plt.ylabel(f"{key}")
     plt.title(title)
     plt.xticks(x)
-    plt.legend(["0",'0.05',"0.1"])
+    plt.legend(["bais",'no bais',"unbais"])
     plt.show()
 
 def plot_bias(data, key='APT', title="Gowa lgn",b=0):
@@ -136,8 +135,8 @@ def plot_new_com(data, key='APT', title="Gowa lgn",co='red'):
         d_1 = [round(bag,5) for bag in data[2]]
         d_2 = [round(bag,5) for bag in data[3]]
 
-    bar1 = plt.bar([i - 0.2 for i in range(5)], height=d_1[:-1], width=0.35, color='r', label='old')  # 第一个图
-    bar2 = plt.bar([i + 0.2 for i in range(5)], height=d_2[:-1], width=0.35, color='g', label='new')
+    bar1 = plt.bar([i - 0.2 for i in range(5)], height=d_1, width=0.35, color='r', label='old')  # 第一个图
+    bar2 = plt.bar([i + 0.2 for i in range(5)], height=d_2, width=0.35, color='g', label='new')
     plt.ylabel(f"{key}")
     plt.title(title)
     plt.xlabel("data")
@@ -182,20 +181,15 @@ if __name__ == "__main__":
     #plot_bias(bias, key='APT5', title=title)
     # plot_bias(bias, key='I_KL', title=title)
     # plot_bias(bias, key='I_bin', title=title)
-    data1=pla.CD_comparsion_gowa_0_t_0923_bais
-    data2 = pla.PD_comparsion_gowa_1_t_0923_bais
-    data3 = pla.PD_comparsion_gowa_2_t_0923_bais
-    datalist=[val for val in data1 for i in range(len(data2))]
+    data1=pla.UD_comparsion_gowa_0919_bais
+    data2 = pla.UD_comparsion_yelp_0919_bais
+    data3 = pla.BPRMF_100_gowa
     #plot_new(data1, key='precision', title='gowa vaild precision',co="red")
-    # plot_new(data1, key='ndcg', title='yelp test ndcg' ,co="green")
-    # plot_new(data2, key='Short Head', title='yelp test APT', co="red")
-    # plot_metrics(data1, key='ndcg', topk=0,title='gowa ndcg')
-    # plot_metrics(data2, key='APT', topk=0, title='gowa ndcg')
-
-    #plot_new_com(data3, key='precision', title='yelp precision', co=['green', 'red', 'black', 'orange', 'yellow', 'blue'])
-    #plot_new_com(data2, key='precision',title='yelp precision',co=['green','red','black','orange','yellow','blue'])
+    plot_new(data2, key='Short Head', title='yelp test APT' ,co="green")
+    plot_new(data2, key='Medium Tail', title='yelp test APT', co="green")
+    plot_new(data2, key='Short Tail', title='yelp test APT', co="green")
     #plot_new(data2, key='ndcg', title='yelp valid ndcg', co="blue")
-    plot_metrics_double(data1=datalist,data2=data2, data3=data3,topk=0,key='APT', title='gowa_MF')
+    #plot_metrics_double(data1=data1,data2=data2, data3=data3,topk=1, title='gowa_MF')
     #bais=pla.BPRMF_kwai_bais
     #plot_metrics(data=data1,topk=1,title='douban_MF')
     #plot_metrics(data=data2, topk=1, title='douban_300')

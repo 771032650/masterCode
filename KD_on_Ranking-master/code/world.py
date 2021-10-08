@@ -13,15 +13,15 @@ import sys
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
-ROOT_PATH = '..'
-CODE_PATH = os.path.join(ROOT_PATH, 'code')
-FILE_PATH = os.path.join(CODE_PATH, 'checkpoints')
-BOARD_PATH = os.path.join(CODE_PATH, 'runs')
-#DATA_PATH = os.path.join(ROOT_PATH, 'data')
-DATA_PATH = ROOT_PATH+'/data'
-LOG_PATH = os.path.join(ROOT_PATH, 'log')
-
-sys.path.append(os.path.join(CODE_PATH, 'sources'))
+# ROOT_PATH = '..'
+# CODE_PATH = os.path.join(ROOT_PATH, 'code')
+# FILE_PATH = os.path.join(CODE_PATH, 'checkpoints')
+# BOARD_PATH = os.path.join(CODE_PATH, 'runs')
+# #DATA_PATH = os.path.join(ROOT_PATH, 'data')
+# DATA_PATH = ROOT_PATH+'/data'
+# LOG_PATH = os.path.join(ROOT_PATH, 'log')
+#
+# sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
 # ROOT_PATH = '/gdata1/chengang/KD'
 # CODE_PATH = os.path.join('/ghome/chengang/KD', 'code')
@@ -33,15 +33,15 @@ sys.path.append(os.path.join(CODE_PATH, 'sources'))
 #
 # sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
-# ROOT_PATH = '/data/chengang/KD'
-# CODE_PATH = os.path.join('/home/chengang/KD', 'code')
-# FILE_PATH = os.path.join('/data/chengang/KD', 'checkpoints')
-# BOARD_PATH = os.path.join('/data/chengang/KD', 'runs')
-# #DATA_PATH = os.path.join(ROOT_PATH, 'data')
-# DATA_PATH = ROOT_PATH+'/data'
-# LOG_PATH = os.path.join('/data/chengang/KD', 'log')
-#
-# sys.path.append(os.path.join(CODE_PATH, 'sources'))
+ROOT_PATH = '/data/chengang/KD'
+CODE_PATH = os.path.join('/home/chengang/KD', 'code')
+FILE_PATH = os.path.join('/data/chengang/KD', 'checkpoints')
+BOARD_PATH = os.path.join('/data/chengang/KD', 'runs')
+#DATA_PATH = os.path.join(ROOT_PATH, 'data')
+DATA_PATH = ROOT_PATH+'/data'
+LOG_PATH = os.path.join('/data/chengang/KD', 'log')
+
+sys.path.append(os.path.join(CODE_PATH, 'sources'))
 
 args = parse_args()
 ARGS = args

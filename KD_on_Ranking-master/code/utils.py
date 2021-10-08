@@ -788,17 +788,20 @@ def split_item_popularity(pop_item,n):
             mapping.append(set(index[left:i-1]))
             left=i
             k=pop_item[index[i]]
-    mapping.append(set(index[left:]))
     return mapping
 
 def PrecisionByGrpup(test_data,pre_data,dataset: Loader,r):
     popularity = dataset.itemCount()
-    # sum_popularit = np.sum(popularity)
-    # popularity = popularity / sum_popularit
-    #popularity = np.power(popularity, 0.4)
+    popularity = popularity.astype(np.float)
+    popularity += 1.0
+    sum_popularit = np.sum(popularity)
+    popularity = popularity / sum_popularit
+    popularity = np.power(popularity, 1)
+    #popularity = np.power(popularity, 1)
     mappings=split_item_popularity(popularity,5)
     total_user=len(test_data)
     metrics = {}
+    max_K = max(world.topks)
     apts=[]
     for mapping in mappings:
         apt = 0.
@@ -808,7 +811,33 @@ def PrecisionByGrpup(test_data,pre_data,dataset: Loader,r):
             if len(groundnum)>0:
                 groundTrue=pre_data[i][groundnum].astype(np.int64)
                 count = list(map(lambda x: x in mapping, groundTrue))
-                apt += np.sum(count)/10
+                apt += np.sum(count)/max_K
+        apt = apt / total_user
+        apts.append(apt)
+    #metrics['precisionbygroup']=APT(groundTrue,mappings=mapping)
+    return apts
+
+def PopularityByGrpup(pre_data,dataset: Loader):
+    popularity = dataset.itemCount()
+    popularity=popularity.astype(np.float)
+    popularity+=1.0
+    sum_popularit = np.sum(popularity)
+    popularity = popularity / sum_popularit
+    popularity = np.power(popularity, 1)
+    #popularity = np.power(popularity, 1)
+    mappings=split_item_popularity(popularity,5)
+    metrics = {}
+    total_user = len(pre_data)
+    max_K = max(world.topks)
+    apts=[]
+    for mapping in mappings:
+        apt = 0.
+        for i in range(len(pre_data)):
+            groundnum = pre_data[i]
+            #groundnum = range(0,10)
+            if len(groundnum)>0:
+                count = list(map(lambda x: x in mapping, groundnum))
+                apt += np.sum(count)/max_K
         apt = apt / total_user
         apts.append(apt)
     #metrics['precisionbygroup']=APT(groundTrue,mappings=mapping)

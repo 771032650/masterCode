@@ -253,7 +253,7 @@ if __name__ == '__main__':
     if world.LOAD:
         utils.load(Recmodel, weight_file)
     # ----------------------------------------------------------------------------
-    earlystop = utils.EarlyStop(patience=20, model=Recmodel, filename=weight_file)
+    earlystop = utils.EarlyStop(patience=50, model=Recmodel, filename=weight_file)
     Recmodel = Recmodel.cuda()
     if world.model_name == 'ConditionalBPRMF':
         Recmodel.set_popularity(popularity_matrix)
@@ -307,7 +307,7 @@ if __name__ == '__main__':
     popularity, user_topk, r = Procedure.Popularity_Bias(dataset, Recmodel, valid=False)
     metrics1 = utils.popularity_ratio(popularity, user_topk, dataset)
     testDict = dataset.testDict
-    metrics2 = utils.PrecisionByGrpup(testDict, user_topk, dataset, r)
+    metrics2 = utils.PopularityByGrpup(user_topk, dataset)
 
     log_file = os.path.join(world.LOG_PATH, utils.getLogFile())
     with open(log_file, 'a') as f:

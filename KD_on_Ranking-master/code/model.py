@@ -632,7 +632,8 @@ class ConditionalBPRMF(MetaModule):
     def computer(self):
         users_emb = self.embedding_user.weight
         items_emb = self.embedding_item.weight
-
+        # users_emb=torch.nn.functional.normalize(users_emb,p=2,dim=-1)
+        # items_emb = torch.nn.functional.normalize(items_emb,p=2, dim=-1)
         return users_emb, items_emb
 
     def getUsersRating(self, users):
@@ -641,10 +642,10 @@ class ConditionalBPRMF(MetaModule):
         items = torch.Tensor(range(self.dataset.m_items)).long().cuda()
         items_emb = all_items[items]
         rating = torch.matmul(users_emb, items_emb.t())
-        rating=self.felu(rating) + 1
+        #rating=self.felu(rating) + 1
         #rating = torch.sigmoid(torch.relu(rating))
         #rating = torch.sigmoid(rating/2)
-        rating = (rating * self.last_popularity[items])
+        #rating = (rating * self.last_popularity[items])
         #rating=torch.sigmoid(rating)
         return rating
 
@@ -665,14 +666,18 @@ class ConditionalBPRMF(MetaModule):
         # users_emb_ego = self.embedding_user(users)
         # pos_emb_ego = self.embedding_item(pos_items)
         # neg_emb_ego = self.embedding_item(neg_items)
-        users_emb_ego = users_emb
-        pos_emb_ego = pos_emb
-        neg_emb_ego = neg_emb
+        # users_emb_ego = users_emb
+        # pos_emb_ego = pos_emb
+        # neg_emb_ego = neg_emb
+        users_emb_ego = self.embedding_user.weight[users]
+        pos_emb_ego = self.embedding_item.weight[pos_items]
+        neg_emb_ego = self.embedding_item.weight[neg_items]
         return users_emb, pos_emb, neg_emb, users_emb_ego, pos_emb_ego, neg_emb_ego
 
     def create_bpr_loss_with_pop_global(self, users, pos_items,
                                         neg_items,pos_pops,neg_pops):  # this global does not refer to global popularity, just a name
         (users_emb, pos_emb, neg_emb,users_emb_ego, pos_emb_ego, neg_emb_ego) = self.getEmbedding(users.long(), pos_items.long(), neg_items.long())
+
         pos_scores = torch.sum(users_emb*pos_emb,dim=1)  # users, pos_items, neg_items have the same shape
         neg_scores = torch.sum(users_emb*neg_emb,dim=1)
         # item stop

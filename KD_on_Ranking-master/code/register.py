@@ -10,17 +10,19 @@ import load_data
 # data_path = os.path.join(
 #                     world.DATA_PATH,
 #                     world.dataset)
+import load_dataset
+
 data_path = world.DATA_PATH+'/'+world.dataset
-if world.ONE:
-    # data_path = data_path + "_one"
-    print("{leave-one-out}:", data_path)
-else:
-    dataset = dataloader.Loader(path=data_path)
-# if  world.dataset in ['kwai','yelp2','douban'] :
-#     dataset = load_data.Data2(world.config,path=data_path)
-#     #dataset = dataloader.Loader(path=data_path)
+# if world.ONE:
+#     # data_path = data_path + "_one"
+#     print("{leave-one-out}:", data_path)
 # else:
 #     dataset = dataloader.Loader(path=data_path)
+if  world.dataset in ['yahooR3'] :
+    dataset = load_dataset.LoaderUnif(world.config,path=data_path,threshold=4, unif_ratio=0.1, seed=world.SEED)
+    #dataset = dataloader.Loader(path=data_path)
+else:
+    dataset = dataloader.Loader(path=data_path)
 
 if world.DISTILL:
     print('===========DISTILL================')

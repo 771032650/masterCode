@@ -51,7 +51,7 @@ def get_dataset_tot_popularity():
     popularity_matrix = popularity_matrix.astype(np.float)
     popularity_matrix += 1.0
     popularity_matrix /= popularity_matrix.sum()
-    popularity_matrix = ( popularity_matrix - popularity_matrix.min() ) / ( popularity_matrix.max() - popularity_matrix.min() )
+    #popularity_matrix = ( popularity_matrix - popularity_matrix.min() ) / ( popularity_matrix.max() - popularity_matrix.min() )
     print("popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))
     # popularity_matrix = np.power(popularity_matrix,popularity_exp)
     # print("After power,popularity information-- mean:{},max:{},min:{}".format(popularity_matrix.mean(),popularity_matrix.max(),popularity_matrix.min()))
@@ -98,10 +98,10 @@ file = utils.getFileName(world.model_name,
                          layers=world.config['lightGCN_n_layers'],
                         dns_k=world.DNS_K
                          )
-#file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-'+ file
-file=world.comment+'-'+str(world.t_lambda_pop)+'-'+str(world.de_weight)+'-'+str(world.config['decay'])+'-'+file
-#file=world.teacher_model_name+'-'+str(world.t_lambda_pop)+'-'+file
-#file=str(world.lambda_pop)+'-'+file
+file = world.SAMPLE_METHOD+'-'+str(world.config['teacher_dim'])+'-'+str(world.kd_weight)+'-'+str(world.config['de_weight'])+'-'+str(world.lambda_pop)+ '-'+ file
+#file=str(world.lambda_pop)+'-'+str(world.config['de_weight'])+'-'+str(world.config['decay'])+'-'+file
+file=world.teacher_model_name+'-'+str(world.t_lambda_pop)+'-'+file
+file='new1'+'-'+file
 weight_file = os.path.join(world.FILE_PATH, file)
 print('-------------------------')
 world.cprint("loaded  weights from")
@@ -150,10 +150,17 @@ cprint("[TEST Teacher]")
 results = Procedure.Test(dataset, model, 0, None, world.config['multicore'], valid=False)
 pprint(results)
 popularity,user_topk,r= Procedure.Popularity_Bias(dataset, model,valid=False)
+
+cprint("[APT]")
 metrics=utils.popularity_ratio(popularity,user_topk,dataset)
 print(metrics)
 
+cprint("[PopularityByGrpup]")
+metrics=utils.PopularityByGrpup(user_topk,dataset)
+print(str(metrics)+',')
+
+cprint("[PrecisionByGrpup]")
 testDict = dataset.testDict
 metrics=utils.PrecisionByGrpup(testDict,user_topk,dataset,r)
-print(metrics)
+print(str(metrics)+',')
 

@@ -183,11 +183,21 @@ def load_vaild_data(dataset, Recmodel):
         return user_array,rating_array
 
 
-def get_rank_loss(users,p_items,n_items,model):
-
+def get_rank_loss(users,p_items,n_items,teacher_model,model):
     dim_item = p_items.shape[-1]
     vector_user = users.repeat((dim_item, 1)).t().reshape((-1,))
-    vector_item = p_items.reshape((-1,)).long()
+    vector_item = p_items.reshape((-1,))
+    weight_pop = teacher_model(vector_user, vector_item)
+    scores = weight_pop.reshape((-1, dim_item))
+
+    samples = scores.sort(dim=-1)[1].cuda()
+    new_items = torch.zeros(len(users), 5)
+    for i in users:
+        new_items[i]=p_items[samples[i]]
+    print(new_items.shape)
+    dim_item = new_items.shape[-1]
+    vector_user = users.repeat((dim_item, 1)).t().reshape((-1,))
+    vector_item = new_items.reshape((-1,))
     S1=model(vector_user,vector_item)
     S1 = S1.reshape((-1, dim_item))
 
@@ -305,17 +315,9 @@ if __name__ == '__main__':
     teacher_users = teacher_users.cuda()
     teacher_posItems = teacher_posItems.cuda()
     teacher_negItems = teacher_negItems.cuda()
-    dim_item = teacher_posItems.shape[-1]
-    vector_user = teacher_users.repeat((dim_item, 1)).t().reshape((-1,))
-    vector_item = teacher_posItems.reshape((-1,))
-    weight_pop = teacher_model(vector_user, vector_item)
-    scores = weight_pop.reshape((-1, dim_item))
-    samples = scores.sort(dim=-1)[1].cuda()
-    new_teacher_posItems = torch.zeros((len(teacher_users), 5))
-    for i in teacher_users:
-        new_teacher_posItems[i] = teacher_posItems[i][samples[i]]
-    teacher_posItems=new_teacher_posItems.cuda()
-
+    print(teacher_users.shape)
+    print(teacher_posItems.shape)
+    print(teacher_negItems.shape)
 
     valid_Dict = dataset.validDict
     vaild_keys =list(valid_Dict.keys())
@@ -355,6 +357,7 @@ if __name__ == '__main__':
 
 
 
+
             #batch_users_v, batch_item_p, batch_item_n = utils.shuffle(vaild_users, vaild_posItems, vaild_negItems)
 
             # formal parameter: Using training set to update parameters
@@ -364,6 +367,7 @@ if __name__ == '__main__':
                                         posItems,
                                         negItems,
                                         batch_size=1024)):
+
 
                         one_step_model = register.MODELS[world.model_name](world.config, dataset).cuda()
                         one_step_model.load_state_dict(student_model.state_dict())
@@ -394,7 +398,7 @@ if __name__ == '__main__':
                         y_hat_l = torch.sigmoid(y_hat_l)
                         loss_l_p_1 = mean_criterion(y_hat_l, vaild_lable)
 
-                        loss_l_p_3=get_rank_loss(teacher_users,teacher_posItems,teacher_negItems,one_step_model)
+                        loss_l_p_3=get_rank_loss(teacher_users,teacher_posItems,teacher_negItems,teacher_model,one_step_model)
                         loss_l_p = loss_l_p_1+loss_l_p_3
 
                         weight1_optimizer.zero_grad()

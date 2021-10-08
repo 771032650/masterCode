@@ -332,7 +332,7 @@ class CD:
         self.lamda = lamda
         self.n_distill = n_distill
         self.t1, self.t2 = t1, t2
-        ranking_list = np.asarray([i/50 for i in range(self.sample_num)])
+        ranking_list = np.asarray([(i+1)/50 for i in range(self.sample_num)])
         ranking_list = torch.FloatTensor(ranking_list)
         ranking_list=torch.exp(-ranking_list*self.lamda)
         self.ranking_mat = torch.stack([ranking_list] * self.dataset.n_users, 0)
@@ -699,7 +699,7 @@ class UD:
         samples_scores_S = userAndMatrix(batch_users, random_samples, STUDENT)
         #weights = torch.sigmoid((samples_scores_T + self.t2) / self.t1)
 
-        weights=torch.sigmoid(samples_scores_T/2)
+        weights=torch.sigmoid(samples_scores_T/1)
         inner = torch.sigmoid(samples_scores_S)
         #inner=samples_scores_S
         UD_loss = -k_mu*(weights * torch.log(inner + 1e-10) +
@@ -858,7 +858,7 @@ class PD:
         self.n_distill = n_distill
         self.t1, self.t2 = t1, t2
         self.sample_num=100
-        ranking_list = np.asarray([i/50 for i in range(self.sample_num)])
+        ranking_list = np.asarray([(i+1)/50 for i in range(self.sample_num)])
         ranking_list = torch.FloatTensor(ranking_list)
         ranking_list = torch.exp(-ranking_list * self.lamda)
         self.ranking_mat = torch.stack([ranking_list] * self.dataset.n_users, 0)
@@ -913,8 +913,11 @@ class PD:
             for user in range(self.dataset.n_users):
                 ranking_list = self.ranking_mat[user]
                 negitems=rank_items[user]
-                samples = torch.multinomial(ranking_list, self.n_distill, replacement=False)
+                samples = torch.multinomial(ranking_list,  self.n_distill, replacement=False)
                 sampled_items=negitems[samples]
+                # samples2= random.sample(range(100,len(negitems),1),90)
+                # sampled_items2=negitems[samples2]
+                # sampled_items=torch.cat((sampled_items,sampled_items2),dim=-1)
                 self.rank_samples[user] = torch.Tensor(list(sampled_items))
 
         self.rank_samples=self.rank_samples.cuda().long()
@@ -942,7 +945,9 @@ class PD:
         #samples_scores_T=userAndMatrix(batch_users, random_samples, TEACHER)
         samples_scores_S = userAndMatrix(batch_users, random_samples, STUDENT)
         #weights = torch.sigmoid((samples_scores_T + self.t2) / self.t1)
-        weights=torch.sigmoid(samples_scores_T/2)
+        #print(samples_scores_T)
+        weights=torch.sigmoid(samples_scores_T/1)
+        #weights=torch.sigmoid(samples_scores_T)
         inner = torch.sigmoid(samples_scores_S)
         #inner=samples_scores_S
         UD_loss = -(weights * torch.log(inner + 1e-10) +
